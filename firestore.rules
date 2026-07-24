@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helper Functions ──────────────────────────────────────────────────
+    
+    // Check if user is authenticated and has access to a specific clinic
+    function isClinicMember(clinicId) {
+      return request.auth != null 
+        && request.auth.token.clinic_id == clinicId;
+    }
+    
+    // Check if user is authenticated (any valid Firebase Auth user)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // ─── clinic_users — Maps Firebase UID → clinic_id ──────────────────────
+    // Read by owner only. Write by backend Admin SDK only.
+    match /clinic_users/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow write: if false;  // Backend uses Admin SDK (bypasses rules)
+    }
+
+    // ─── clinics — Clinic profile, schedule, fees, agent config ────────────
+    // Read by clinic members. Write by backend Admin SDK only.
+    match /clinics/{clinicId} {
+      allow read: if isClinicMember(clinicId);
+      allow write: if false;
+    }
+
+    // ─── patients — Patient demographics, allergies, conditions ───────────
+    // Read by clinic members. Write by backend Admin SDK only.
+    match /patients/{patientId} {
+      allow read: if isAuthenticated() 
+        && resource.data.clinic_id == request.auth.token.clinic_id;
+      allow write: if false;
+    }
+
+    // ─── appointments — Booking lifecycle ─────────────────────────────────
+    // Read by clinic members. Write by backend Admin SDK only.
+    match /appointments/{appointmentId} {
+      allow read: if isAuthenticated() 
+        && resource.data.clinic_id == request.auth.token.clinic_id;
+      allow write: if false;
+    }
+
+    // ─── consultations — SOAP notes, transcripts, safety flags ────────────
+    // Read by clinic members. Write by backend Admin SDK only.
+    match /consultations/{consultationId} {
+      allow read: if isAuthenticated() 
+        && resource.data.clinic_id == request.auth.token.clinic_id;
+      allow write: if false;
+    }
+
+    // ─── agent_logs — All agent decisions (judge evidence) ────────────────
+    // Read by clinic members (real-time dashboard feed).
+    // Write by backend Admin SDK only (AgentLogger dual-write).
+    match /agent_logs/{logId} {
+      allow read: if isAuthenticated() 
+        && resource.data.clinic_id == request.auth.token.clinic_id;
+      allow write: if false;
+    }
+
+    // ─── pending_bookings — TTL-based slot selection state ────────────────
+    // Backend only. No frontend access needed.
+    match /pending_bookings/{phone} {
+      allow read, write: if false;
+    }
+
+    // ─── clinic_insights — Weekly analytics reports ───────────────────────
+    // Read by clinic members. Write by backend Admin SDK only.
+    match /clinic_insights/{clinicId} {
+      allow read: if isClinicMember(clinicId);
+      allow write: if false;
+      
+      match /weekly/{weekId} {
+        allow read: if isClinicMember(clinicId);
+        allow write: if false;
+      }
+    }
+
+    // ─── Default deny — everything else is blocked ────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

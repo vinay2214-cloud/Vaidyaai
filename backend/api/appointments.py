@@ -1,0 +1,184 @@
+import logging
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pydantic import BaseModel, Field
+
+from api.auth import get_current_user, verify_clinic_access
+from database.firestore import (
+    get_appointments_today,
+    get_document,
+    set_document,
+    update_document,
+    get_patient_by_phone
+)
+from tasks.cloud_tasks import cancel_task
+from utils.phone_utils import mask_phone, normalize_phone
+from utils.date_utils import get_today_ist_date_str, get_current_ist_datetime
+
+logger = logging.getLogger("vaidyaai.api.appointments")
+router = APIRouter()
+
+
+# ─── Request / Response Schemas ──────────────────────────────────────────────
+
+class WalkInRequest(BaseModel):
+    clinic_id: str
+    patient_phone: str
+    patient_name: Optional[str] = None
+    complaint_summary: Optional[str] = "Walk-in Consultation"
+    consultation_type: str = Field(default="new", pattern="^(new|followup|procedure)$")
+
+
+class StatusUpdateRequest(BaseModel):
+    clinic_id: str
+    status: str = Field(pattern="^(arrived|in_progress|completed|no_show|cancelled)$")
+    cancel_reason: Optional[str] = None
+
+
+# ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@router.get("/appointments/today", tags=["appointments"])
+async def get_today_appointments_endpoint(
+    clinic_id: str = Query(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    GET /api/v1/appointments/today?clinic_id={id}
+    Returns today's appointment list for the authenticated doctor's clinic.
+    Enforces strict tenant isolation.
+    """
+    verify_clinic_access(clinic_id, current_user)
+    
+    today_date = get_today_ist_date_str()
+    appointments = await get_appointments_today(clinic_id, today_date)
+    
+    # Sort by queue_number or created_at
+    appointments.sort(key=lambda x: x.get("queue_number", 999))
+    
+    return appointments
+
+
+@router.post("/appointments/walk-in", tags=["appointments"])
+async def create_walk_in_appointment(
+    req: WalkInRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    POST /api/v1/appointments/walk-in
+    Creates a same-day walk-in appointment for patients arriving directly at the clinic.
+    Creates or updates patient profile automatically.
+    """
+    verify_clinic_access(req.clinic_id, current_user)
+    
+    normalized_phone = normalize_phone(req.patient_phone)
+    today_date = get_today_ist_date_str()
+    now_utc = datetime.now(timezone.utc)
+    
+    # 1. Ensure patient record exists
+    patient = await get_patient_by_phone(normalized_phone, req.clinic_id)
+    if not patient:
+        patient_id = f"pat_{int(now_utc.timestamp())}"
+        patient_data = {
+            "clinic_id": req.clinic_id,
+            "phone": normalized_phone,
+            "phone_masked": mask_phone(normalized_phone),
+            "name": req.patient_name,
+            "language_preference": "te",
+            "allergies": [],
+            "chronic_conditions": [],
+            "visit_count": 1,
+            "consent_given": True,
+            "consent_at": now_utc,
+            "opted_out": False,
+            "is_active": True,
+            "created_at": now_utc
+        }
+        await set_document("patients", patient_id, patient_data)
+    else:
+        patient_id = patient["patient_id"]
+        if req.patient_name and not patient.get("name"):
+            await update_document("patients", patient_id, {"name": req.patient_name})
+
+    # 2. Calculate queue number and slot time
+    existing = await get_appointments_today(req.clinic_id, today_date)
+    queue_number = len(existing) + 1
+    
+    now_ist = get_current_ist_datetime()
+    slot_time_str = now_ist.strftime("%I:%M %p")
+
+    # 3. Save appointment to Firestore
+    app_id = f"app_walkin_{int(now_utc.timestamp())}"
+    appointment_data = {
+        "clinic_id": req.clinic_id,
+        "patient_id": patient_id,
+        "patient_name": req.patient_name,
+        "patient_phone_masked": mask_phone(normalized_phone),
+        "slot_time": now_utc,
+        "slot_date": today_date,
+        "slot_time_str": slot_time_str,
+        "duration_minutes": 15,
+        "complaint_summary": req.complaint_summary,
+        "status": "arrived",  # Walk-in starts as arrived
+        "consultation_type": req.consultation_type,
+        "booked_by": "walk_in",
+        "queue_number": queue_number,
+        "created_at": now_utc
+    }
+    await set_document("appointments", app_id, appointment_data)
+
+    logger.info(f"Created walk-in appointment '{app_id}' (# {queue_number}) for clinic {req.clinic_id}")
+    return {
+        "appointment_id": app_id,
+        "patient_id": patient_id,
+        "slot_date": today_date,
+        "slot_time_str": slot_time_str,
+        "queue_number": queue_number,
+        "status": "arrived"
+    }
+
+
+@router.patch("/appointments/{id}/status", tags=["appointments"])
+async def update_appointment_status(
+    id: str,
+    req: StatusUpdateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    PATCH /api/v1/appointments/{id}/status
+    Updates an appointment's lifecycle status (arrived, in_progress, completed, no_show, cancelled).
+    Cancels deferred Cloud Tasks if cancelled.
+    """
+    verify_clinic_access(req.clinic_id, current_user)
+    
+    appointment = await get_document("appointments", id)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+        
+    if appointment.get("clinic_id") != req.clinic_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    update_payload: Dict[str, Any] = {
+        "status": req.status,
+        "updated_at": datetime.now(timezone.utc)
+    }
+
+    if req.status == "cancelled":
+        update_payload["cancelled_at"] = datetime.now(timezone.utc)
+        if req.cancel_reason:
+            update_payload["cancel_reason"] = req.cancel_reason
+            
+        # Cancel Cloud Tasks if present
+        if appointment.get("reminder_task_name"):
+            await cancel_task(appointment["reminder_task_name"])
+        if appointment.get("wellness_task_name"):
+            await cancel_task(appointment["wellness_task_name"])
+
+    await update_document("appointments", id, update_payload)
+    logger.info(f"Updated appointment '{id}' status to '{req.status}'")
+
+    return {
+        "updated": True,
+        "appointment_id": id,
+        "status": req.status
+    }

@@ -1,0 +1,96 @@
+# ==============================================================================
+# VaidyaAI Production .gitignore
+# Platform: Python, FastAPI, Node.js, Next.js, React, Firebase, GCP, Docker
+# ==============================================================================
+
+# OS System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.db
+*.sqlite3
+test.db
+
+# Node.js & Next.js Build Output
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.npm
+.yarn/
+.pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Firebase & Deployment Cache
+.firebase/
+.gcp/
+*.log
+
+# Secrets & Environment Variables (NEVER COMMIT REAL CREDENTIALS)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+backend/.env
+frontend/.env.local
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+
+# IDE & Editor Settings
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary & Scratch Files
+tmp/
+temp/
+*.tmp

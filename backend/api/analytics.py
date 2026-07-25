@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from api.auth import get_current_user, verify_clinic_access
 from database.firestore import query_documents, get_document
-from utils.evidence_export import generate_evidence_package
+from utils.evidence_export import export_clinic_evidence, generate_evidence_package
 from agents.insight_engine import InsightEngineAgent
 
 logger = logging.getLogger("vaidyaai.api.analytics")

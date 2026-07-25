@@ -57,3 +57,7 @@ async def export_clinic_evidence(clinic_id: str) -> Dict[str, Any]:
     Executes synchronous Firestore streaming off the main thread.
     """
     return await asyncio.to_thread(_export_clinic_evidence_sync, clinic_id)
+
+
+# Alias for backward/forward compatibility across API imports
+generate_evidence_package = export_clinic_evidence

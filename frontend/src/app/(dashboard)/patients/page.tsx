@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Users, Search, Phone, ShieldCheck, HeartPulse, ChevronRight, UserPlus } from "lucide-react";
+import React, { useEffect, useState, useCallback } from "react";
+import { Users, Search, HeartPulse, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
@@ -12,7 +12,7 @@ export default function PatientsPage() {
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchPatients = async () => {
+  const fetchPatients = useCallback(async () => {
     if (!clinicId) return;
     try {
       setLoading(true);
@@ -26,11 +26,11 @@ export default function PatientsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [clinicId, searchTerm]);
 
   useEffect(() => {
     fetchPatients();
-  }, [clinicId, searchTerm]);
+  }, [fetchPatients]);
 
   return (
     <div className="space-y-6">

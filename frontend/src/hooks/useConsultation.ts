@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api from "../lib/api";
 import { useClinicStore } from "../store/clinicStore";
 
@@ -27,7 +27,7 @@ export function useConsultation(consultationId: string) {
   const [consultation, setConsultation] = useState<ConsultationData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchConsultation = async () => {
+  const fetchConsultation = useCallback(async () => {
     if (!clinicId || !consultationId) return;
     try {
       setLoading(true);
@@ -38,11 +38,11 @@ export function useConsultation(consultationId: string) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [clinicId, consultationId]);
 
   useEffect(() => {
     fetchConsultation();
-  }, [clinicId, consultationId]);
+  }, [fetchConsultation]);
 
   return { consultation, loading, refresh: fetchConsultation, setConsultation };
 }

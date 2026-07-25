@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api from "../lib/api";
 import { useClinicStore } from "../store/clinicStore";
 
@@ -18,7 +18,7 @@ export function useBilling() {
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchTodayBilling = async () => {
+  const fetchTodayBilling = useCallback(async () => {
     if (!clinicId) return;
     try {
       setLoading(true);
@@ -29,11 +29,11 @@ export function useBilling() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [clinicId]);
 
   useEffect(() => {
     fetchTodayBilling();
-  }, [clinicId]);
+  }, [fetchTodayBilling]);
 
   return { summary, loading, refresh: fetchTodayBilling };
 }

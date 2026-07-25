@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { BarChart3, TrendingUp, Users, Activity, Download, Zap, RefreshCw } from "lucide-react";
+import React, { useEffect, useState, useCallback } from "react";
+import { BarChart3, RefreshCw } from "lucide-react";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
 
@@ -12,7 +12,7 @@ export default function AnalyticsDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     if (!clinicId) return;
     try {
       setLoading(true);
@@ -25,11 +25,11 @@ export default function AnalyticsDashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [clinicId]);
 
   useEffect(() => {
     fetchAnalytics();
-  }, [clinicId]);
+  }, [fetchAnalytics]);
 
   const handleGenerateReport = async () => {
     if (!clinicId) return;
@@ -93,7 +93,7 @@ export default function AnalyticsDashboardPage() {
           <div className="h-20 bg-slate-800/50 rounded-2xl animate-pulse" />
         ) : reports.length === 0 ? (
           <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-6 text-center text-xs text-slate-500">
-            No weekly reports generated yet. Click 'Generate Report' above to run Agent 6 (InsightEngine).
+            No weekly reports generated yet. Click &apos;Generate Report&apos; above to run Agent 6 (InsightEngine).
           </div>
         ) : (
           reports.map((rpt) => (

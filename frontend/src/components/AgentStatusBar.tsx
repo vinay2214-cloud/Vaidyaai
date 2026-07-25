@@ -9,6 +9,7 @@ interface AgentStatusBarProps {
   activeFilter?: string | null;
   onSelectFilter?: (agent: string | null) => void;
   showFilters?: boolean;
+  showFiltersOnly?: boolean;
   className?: string;
 }
 
@@ -16,6 +17,7 @@ export function AgentStatusBar({
   activeFilter = null,
   onSelectFilter,
   showFilters = false,
+  showFiltersOnly = false,
   className
 }: AgentStatusBarProps) {
   const { logs } = useAgentLogs();
@@ -36,10 +38,44 @@ export function AgentStatusBar({
     { id: "referral_coordinator", label: "Agent 7: ReferralCoordinator" }
   ];
 
+  if (showFiltersOnly && onSelectFilter) {
+    return (
+      <div className={`flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none ${className || ""}`}>
+        <button
+          onClick={() => onSelectFilter(null)}
+          className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors border ${
+            activeFilter === null
+              ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
+              : "bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200"
+          }`}
+        >
+          All 7 Agents
+        </button>
+
+        {agents.map((agent) => {
+          const isSelected = activeFilter === agent.id;
+          return (
+            <button
+              key={agent.id}
+              onClick={() => onSelectFilter(isSelected ? null : agent.id)}
+              className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors border ${
+                isSelected
+                  ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
+                  : "bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200"
+              }`}
+            >
+              {agent.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className={`space-y-2 ${className || ""}`}>
-      {/* Top Banner Bar */}
-      <div className="bg-slate-800/90 border border-slate-700/70 rounded-2xl px-4 py-2.5 flex items-center justify-between gap-4 text-xs">
+      {/* Global Status Banner Bar */}
+      <div className="bg-slate-800/90 border border-slate-700/70 rounded-2xl px-4 py-2 flex items-center justify-between gap-4 text-xs shadow-sm">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <AgentDot status="active" />
@@ -72,39 +108,6 @@ export function AgentStatusBar({
           </div>
         </div>
       </div>
-
-      {/* Optional Filter Pills */}
-      {showFilters && onSelectFilter && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          <button
-            onClick={() => onSelectFilter(null)}
-            className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors border ${
-              activeFilter === null
-                ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
-                : "bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200"
-            }`}
-          >
-            All 7 Agents
-          </button>
-
-          {agents.map((agent) => {
-            const isSelected = activeFilter === agent.id;
-            return (
-              <button
-                key={agent.id}
-                onClick={() => onSelectFilter(isSelected ? null : agent.id)}
-                className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors border ${
-                  isSelected
-                    ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
-                    : "bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200"
-                }`}
-              >
-                {agent.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

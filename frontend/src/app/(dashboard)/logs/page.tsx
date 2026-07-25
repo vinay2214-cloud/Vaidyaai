@@ -16,7 +16,6 @@ export default function AgentLogsPage() {
   const clinicId = useClinicStore((state) => state.clinicId);
   const { logs, loading } = useAgentLogs(selectedAgentFilter);
 
-  // Calculate Statistics Bar Metrics
   const totalDecisions = logs.length;
   const errorLogs = logs.filter((l) => l.success === false);
   const totalErrors = errorLogs.length;
@@ -36,8 +35,7 @@ export default function AgentLogsPage() {
       a.download = `VaidyaAI_Agent_Decision_Logs_${clinicId}.json`;
       a.click();
     } catch (e) {
-      console.warn("Export evidence API error, falling back to local logs export:", e);
-      // Fallback local export
+      console.warn("Export evidence API warning, executing client export:", e);
       const jsonStr = JSON.stringify({ clinic_id: clinicId, agent_logs: logs }, null, 2);
       const blob = new Blob([jsonStr], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -49,40 +47,40 @@ export default function AgentLogsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <div className="flex items-center gap-2">
             <Cpu className="w-5 h-5 text-teal-400" />
-            <h2 className="text-lg font-bold text-white">AI Operations Timeline</h2>
+            <h2 className="text-base font-bold text-white">AI Operations Timeline</h2>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Real-time Firestore streaming audit log across all 7 autonomous AI agents
+          <p className="text-xs text-slate-400 mt-0.5">
+            Real-time decision audit log across all 7 autonomous AI agents
           </p>
         </div>
 
         <button
           onClick={handleExportEvidence}
-          className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-lg shadow-teal-500/10"
+          className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
         >
           <Download className="w-4 h-4" /> Export Audit Logs JSON
         </button>
       </div>
 
       {/* Agent Statistics Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         <KPICard title="Total Decisions" value={totalDecisions || 42} subtitle="Processed by agents" icon={Activity} color="teal" />
         <KPICard title="Average Latency" value={`${avgLatency}ms`} subtitle="Gemini response speed" icon={Zap} color="amber" />
         <KPICard title="Agent Failures" value={totalErrors} subtitle={totalErrors === 0 ? "0% Error rate" : `${totalErrors} failures`} icon={AlertTriangle} color={totalErrors === 0 ? "emerald" : "rose"} />
         <KPICard title="Last Action" value={lastDecisionText} subtitle="Real-time trigger" icon={CheckCircle2} color="blue" />
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs Only */}
       <AgentStatusBar
         activeFilter={selectedAgentFilter}
         onSelectFilter={setSelectedAgentFilter}
-        showFilters={true}
+        showFiltersOnly={true}
       />
 
       {/* Decision Timeline Feed */}

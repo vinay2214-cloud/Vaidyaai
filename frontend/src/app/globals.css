@@ -8,7 +8,12 @@
   --background-end-rgb: 15, 23, 42;
 }
 
+html,
 body {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-behavior: smooth;
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-start-rgb));
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;

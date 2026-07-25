@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
 import { useBilling } from "@/hooks/useBilling";
@@ -18,8 +18,16 @@ import { FinancialSkeleton } from "@/components/billing/FinancialSkeleton";
 
 export default function FinancialIntelligencePage() {
   const clinicId = useClinicStore((state) => state.clinicId);
-  const { summary, loading: summaryLoading, refresh } = useBilling();
+  const { summary, loading: summaryLoading } = useBilling();
   const [loading, setLoading] = useState(true);
+
+  // Safety Timeout: Never lock UI in infinite skeleton loading if backend is offline
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const metrics: FinancialMetrics = {
     revenue_today: summary?.total_collected_rupees || 9500,
@@ -134,16 +142,12 @@ export default function FinancialIntelligencePage() {
     }
   };
 
-  useEffect(() => {
-    setLoading(false);
-  }, []);
-
-  if (loading || summaryLoading) {
+  if (loading && summaryLoading) {
     return <FinancialSkeleton />;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <BillingHeader
         financialHealthScore={98}
@@ -157,10 +161,10 @@ export default function FinancialIntelligencePage() {
       {/* SECTION 5: BillingPulse Insights */}
       <BillingInsightCard insights={insights} />
 
-      {/* Main Grid Layout: Left Content (2 Cols), Right Sidebar (1 Col) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Main Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Left Primary Financial Workspaces */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4">
           {/* SECTION 2: Revenue Dashboard */}
           <RevenueChart />
 
@@ -176,8 +180,8 @@ export default function FinancialIntelligencePage() {
           <PaymentAnalyticsCard />
 
           {/* SECTION 6: Invoice Management List */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-bold text-white">Recent Invoices</h3>
+          <div className="space-y-2.5">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Recent Invoices</h3>
             {sampleInvoices.map((inv) => (
               <InvoiceCard
                 key={inv.invoice_id}
@@ -198,7 +202,7 @@ export default function FinancialIntelligencePage() {
         </div>
 
         {/* SECTION 10: Right Sidebar (BillingPulse Status & Alerts) */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           <BillingSidebar />
         </div>
       </div>

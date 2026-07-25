@@ -170,7 +170,7 @@ export default function AIOperationsCenterPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* SECTION 1: AI Operations Header */}
       <OperationsHeader
         platformHealthScore={99}
@@ -184,14 +184,14 @@ export default function AIOperationsCenterPage() {
       {/* SECTION 9: Operational Intelligence Briefing */}
       <OperationsInsightCard insights={operationsInsights} />
 
-      {/* Main Grid Layout: Left Content (2 Cols), Right Sidebar (1 Col) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Main Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Left Primary Operations Workspaces */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4">
           {/* SECTION 2: AI Workforce Status (7 Agents) */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-bold text-white">Autonomous 7-Agent Workforce Health</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-2.5">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Autonomous 7-Agent Workforce Health</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
               {agents.map((agent) => (
                 <AgentStatusCard key={agent.agentId} agent={agent} />
               ))}
@@ -218,7 +218,7 @@ export default function AIOperationsCenterPage() {
         </div>
 
         {/* SECTION 10: Right Sidebar (Operations Status & Quick Links) */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           <OperationsSidebar />
         </div>
       </div>

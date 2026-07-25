@@ -11,7 +11,7 @@ import { PatientCard, PatientData } from "@/components/patients/PatientCard";
 import { SkeletonPatientCard } from "@/components/patients/SkeletonPatientCard";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { WalkInModal } from "@/components/WalkInModal";
-import { Users } from "lucide-react";
+import { Users, PlusCircle } from "lucide-react";
 
 export default function PatientIntelligencePage() {
   const clinicId = useClinicStore((state) => state.clinicId);
@@ -29,7 +29,6 @@ export default function PatientIntelligencePage() {
       setLoading(true);
       const res = await api.get(`/patients?clinic_id=${clinicId}`);
       
-      // Enrich response into PatientData schema
       const enriched: PatientData[] = (res.data || []).map((p: any, idx: number) => ({
         patient_id: p.patient_id || `pat_${idx}`,
         name: p.name || `Patient ${idx + 1}`,
@@ -62,10 +61,8 @@ export default function PatientIntelligencePage() {
     fetchPatients();
   }, [fetchPatients]);
 
-  // Filtering & Search Logic
   const filteredPatients = useMemo(() => {
     return patients.filter((p) => {
-      // 1. Search Query Match
       if (searchTerm.trim() !== "") {
         const query = searchTerm.toLowerCase();
         const matchName = p.name.toLowerCase().includes(query);
@@ -74,7 +71,6 @@ export default function PatientIntelligencePage() {
         if (!matchName && !matchPhone && !matchComplaint) return false;
       }
 
-      // 2. Filter Bar Category Match
       if (activeFilter === "TODAY") return p.status_badge === "TODAY" || p.last_visit_str === "Today";
       if (activeFilter === "HIGH_RISK") return p.risk_level === "HIGH" || p.risk_level === "CRITICAL" || p.status_badge === "HIGH RISK";
       if (activeFilter === "CHRONIC") return (p.chronic_diseases && p.chronic_diseases.length > 0) || p.status_badge === "CHRONIC";
@@ -87,7 +83,6 @@ export default function PatientIntelligencePage() {
     });
   }, [patients, searchTerm, activeFilter]);
 
-  // Sort Logic
   const sortedPatients = useMemo(() => {
     const list = [...filteredPatients];
     if (sortBy === "alphabetical") {
@@ -97,10 +92,9 @@ export default function PatientIntelligencePage() {
       const weight: Record<string, number> = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
       return list.sort((a, b) => (weight[b.risk_level || "LOW"] || 0) - (weight[a.risk_level || "LOW"] || 0));
     }
-    return list; // default newest
+    return list;
   }, [filteredPatients, sortBy]);
 
-  // Filter Counts
   const filterCounts: Record<PatientFilterType, number> = {
     ALL: patients.length,
     TODAY: patients.filter((p) => p.status_badge === "TODAY" || p.last_visit_str === "Today").length,
@@ -113,19 +107,41 @@ export default function PatientIntelligencePage() {
     RECENTLY_ADDED: patients.length
   };
 
-  const handleGenerateSummary = (id: string) => {
-    alert(`Generating AI Longitudinal Clinical Summary for Patient ID: ${id}`);
-  };
-
-  const handleSendFollowup = (id: string) => {
-    alert(`Triggered Agent 4 (RetentionRadar) follow-up outreach for Patient ID: ${id}`);
-  };
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <WalkInModal />
 
-      {/* 1. Patient Header & KPI Summary */}
+      {/* PRIORITY 5: Primary Patient Search & Quick Registration Top Bar */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Users className="w-5 h-5 text-teal-400" />
+          <h2 className="text-base font-bold text-white">Patient Intelligence Center</h2>
+        </div>
+
+        <button
+          onClick={() => setWalkInModalOpen(true)}
+          className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
+        >
+          <PlusCircle className="w-4 h-4" /> Register Walk-In Patient
+        </button>
+      </div>
+
+      {/* Primary Patient Search Input */}
+      <PatientSearch
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        sortBy={sortBy}
+        onSortChange={setSortBy}
+      />
+
+      {/* Filter Chips */}
+      <PatientFilterBar
+        activeFilter={activeFilter}
+        onFilterChange={setActiveFilter}
+        counts={filterCounts}
+      />
+
+      {/* Demographics & Metadata Header */}
       <PatientHeader
         totalPatients={patients.length}
         highRiskCount={filterCounts.HIGH_RISK}
@@ -134,23 +150,8 @@ export default function PatientIntelligencePage() {
         onAddWalkIn={() => setWalkInModalOpen(true)}
       />
 
-      {/* 2. Intelligent Search & Sorting */}
-      <PatientSearch
-        searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
-        sortBy={sortBy}
-        onSortChange={setSortBy}
-      />
-
-      {/* 3. Advanced Filter Chips */}
-      <PatientFilterBar
-        activeFilter={activeFilter}
-        onFilterChange={setActiveFilter}
-        counts={filterCounts}
-      />
-
-      {/* 4. Patient Intelligence Cards List */}
-      <div className="space-y-3.5">
+      {/* Patient Cards List */}
+      <div className="space-y-3">
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
@@ -160,9 +161,9 @@ export default function PatientIntelligencePage() {
         ) : sortedPatients.length === 0 ? (
           <EmptyState
             title="No Matching Patient Records Found"
-            description="Patients who register via Agent 1 (AppointmentFlow) or Walk-in Reception will automatically appear in this Patient Intelligence Center."
+            description="Patients who register via WhatsApp (Agent 1) or Walk-in Reception will automatically appear here."
             icon={Users}
-            actionLabel="Add Walk-In Patient"
+            actionLabel="Register Walk-In Patient"
             onAction={() => setWalkInModalOpen(true)}
           />
         ) : (
@@ -170,8 +171,8 @@ export default function PatientIntelligencePage() {
             <PatientCard
               key={pat.patient_id}
               patient={pat}
-              onGenerateSummary={handleGenerateSummary}
-              onSendFollowup={handleSendFollowup}
+              onGenerateSummary={(id) => alert(`Generating AI summary for patient ${id}`)}
+              onSendFollowup={(id) => alert(`Triggering Agent 4 follow-up for patient ${id}`)}
             />
           ))
         )}

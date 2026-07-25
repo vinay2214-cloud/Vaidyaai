@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
 import { AnalyticsHeader } from "@/components/analytics/AnalyticsHeader";
@@ -95,7 +95,7 @@ export default function PracticeIntelligencePage() {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Page Header */}
       <AnalyticsHeader
         healthScore={94}

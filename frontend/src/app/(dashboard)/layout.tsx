@@ -36,9 +36,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col pb-20 md:pb-0">
+    <div className="min-h-screen bg-slate-900 flex flex-col pb-24 md:pb-8">
       {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-teal-500/10 border border-teal-500/30 rounded-xl flex items-center justify-center">
             <Activity className="w-5 h-5 text-teal-400" />
@@ -51,16 +51,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <button
           onClick={() => setWalkInModalOpen(true)}
-          className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-lg shadow-teal-500/10"
+          className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-lg shadow-teal-500/10 focus:ring-2 focus:ring-teal-400 focus:outline-none"
         >
           <PlusCircle className="w-4 h-4" /> Walk-In Patient
         </button>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 p-4 max-w-5xl w-full mx-auto space-y-4">
-        {/* Global AI Workforce Status Bar */}
+      {/* Global AI Workforce Status Bar */}
+      <div className="sticky top-[57px] z-20 px-4 pt-2 pb-1 bg-slate-900/90 backdrop-blur-md border-b border-slate-800/60 max-w-5xl w-full mx-auto">
         <AgentStatusBar />
+      </div>
+
+      {/* Main Content Area */}
+      <main className="flex-1 p-4 max-w-5xl w-full mx-auto space-y-4">
         {children}
       </main>
 
@@ -73,9 +76,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-xs font-medium transition-all ${
+              className={`flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-xs font-medium transition-all focus:outline-none ${
                 isActive
-                  ? "text-teal-400 bg-teal-500/10 border border-teal-500/20"
+                  ? "text-teal-400 bg-teal-500/10 border border-teal-500/20 font-bold"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >

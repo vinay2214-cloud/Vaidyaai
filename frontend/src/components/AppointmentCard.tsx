@@ -2,9 +2,10 @@
 
 import React, { useState } from "react";
 import { Appointment } from "@/hooks/useAppointmentsToday";
-import { User, Clock, CheckCircle, XCircle, ArrowRight, Activity } from "lucide-react";
+import { Clock, CheckCircle, XCircle, ArrowRight, MessageSquare, FileText, CreditCard, Sparkles } from "lucide-react";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
+import { StatusBadge, StatusVariant } from "./shared/StatusBadge";
 
 export function AppointmentCard({ appointment }: { appointment: Appointment }) {
   const clinicId = useClinicStore((state) => state.clinicId);
@@ -25,46 +26,83 @@ export function AppointmentCard({ appointment }: { appointment: Appointment }) {
     }
   };
 
-  const statusBadges: Record<string, { bg: string; text: string; label: string }> = {
-    booked: { bg: "bg-blue-500/10", text: "text-blue-400 border-blue-500/30", label: "Booked (WhatsApp)" },
-    arrived: { bg: "bg-amber-500/10", text: "text-amber-400 border-amber-500/30", label: "Arrived in Clinic" },
-    in_progress: { bg: "bg-purple-500/10", text: "text-purple-400 border-purple-500/30", label: "In Consultation" },
-    completed: { bg: "bg-emerald-500/10", text: "text-emerald-400 border-emerald-500/30", label: "Completed" },
-    cancelled: { bg: "bg-rose-500/10", text: "text-rose-400 border-rose-500/30", label: "Cancelled" }
+  const statusVariantMap: Record<string, { variant: StatusVariant; label: string }> = {
+    booked: { variant: "info", label: "Booked (WhatsApp)" },
+    arrived: { variant: "warning", label: "Arrived in Clinic" },
+    in_progress: { variant: "running", label: "In Consultation" },
+    completed: { variant: "success", label: "Completed" },
+    cancelled: { variant: "error", label: "Cancelled" }
   };
 
-  const badge = statusBadges[appointment.status] || statusBadges.booked;
+  const { variant, label } = statusVariantMap[appointment.status] || { variant: "neutral", label: appointment.status };
+
+  // Calculate estimated wait time (ETA) based on queue position
+  const etaMinutes = (appointment.queue_number - 1) * 12;
+  const etaDisplay = appointment.status === "in_progress" 
+    ? "In Room" 
+    : appointment.status === "completed" 
+    ? "Done" 
+    : etaMinutes <= 0 
+    ? "Now" 
+    : `~${etaMinutes} mins wait`;
+
+  const bookingSource = appointment.booked_by === "whatsapp_agent" ? "WhatsApp Agent" : "Walk-in Desk";
+  const whatsappStatus = appointment.status === "booked" ? "Reminder Sent" : "Delivered";
+  const soapStatus = appointment.status === "completed" ? "SOAP Approved" : appointment.status === "in_progress" ? "SOAP Scribe Active" : "Pending";
+  const billingStatus = appointment.status === "completed" ? "UPI Paid" : "Pending";
 
   return (
     <div className="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm hover:border-slate-600 transition-colors">
-      <div className="flex items-start gap-3.5">
-        <div className="w-10 h-10 bg-slate-900 border border-slate-700 rounded-xl flex items-center justify-center text-teal-400 font-bold shrink-0">
+      <div className="flex items-start gap-3.5 min-w-0">
+        <div className="w-10 h-10 bg-slate-900 border border-slate-700 rounded-xl flex items-center justify-center text-teal-400 font-bold shrink-0 text-sm">
           #{appointment.queue_number}
         </div>
-        <div>
+
+        <div className="space-y-1.5 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-white text-base">{appointment.patient_name || "Patient"}</h3>
-            <span className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${badge.bg} ${badge.text}`}>
-              {badge.label}
+            <h3 className="font-bold text-white text-sm">{appointment.patient_name || "Patient"}</h3>
+            <StatusBadge label={label} variant={variant} size="sm" />
+            <span className="text-[10px] font-mono bg-slate-900 border border-slate-700/60 px-2 py-0.5 rounded-full text-slate-300">
+              ETA: {etaDisplay}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1 flex items-center gap-3">
-            <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-500" /> {appointment.slot_time_str}</span>
+
+          <p className="text-xs text-slate-400 flex items-center gap-2 flex-wrap">
+            <span className="flex items-center gap-1 font-mono text-slate-300">
+              <Clock className="w-3.5 h-3.5 text-teal-400" /> {appointment.slot_time_str}
+            </span>
             <span>•</span>
-            <span>{appointment.patient_phone_masked}</span>
+            <span className="font-mono text-slate-400">{appointment.patient_phone_masked}</span>
             <span>•</span>
-            <span className="capitalize">{appointment.consultation_type}</span>
+            <span className="capitalize text-slate-300">{appointment.consultation_type}</span>
           </p>
+
+          {/* Status Chips Row */}
+          <div className="flex items-center gap-2 flex-wrap text-[11px] pt-1">
+            <span className="inline-flex items-center gap-1 bg-slate-900/80 border border-slate-700/50 text-slate-300 px-2 py-0.5 rounded-md">
+              <Sparkles className="w-3 h-3 text-teal-400" /> {bookingSource}
+            </span>
+            <span className="inline-flex items-center gap-1 bg-slate-900/80 border border-slate-700/50 text-emerald-400 px-2 py-0.5 rounded-md">
+              <MessageSquare className="w-3 h-3 text-emerald-400" /> WA: {whatsappStatus}
+            </span>
+            <span className="inline-flex items-center gap-1 bg-slate-900/80 border border-slate-700/50 text-purple-300 px-2 py-0.5 rounded-md">
+              <FileText className="w-3 h-3 text-purple-400" /> SOAP: {soapStatus}
+            </span>
+            <span className="inline-flex items-center gap-1 bg-slate-900/80 border border-slate-700/50 text-amber-300 px-2 py-0.5 rounded-md">
+              <CreditCard className="w-3 h-3 text-amber-400" /> Bill: {billingStatus}
+            </span>
+          </div>
+
           {appointment.complaint_summary && (
-            <p className="text-xs text-slate-300 mt-2 bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-800 italic">
-              "{appointment.complaint_summary}"
+            <p className="text-xs text-slate-300 mt-1.5 bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-800 italic">
+              &quot;{appointment.complaint_summary}&quot;
             </p>
           )}
         </div>
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-2 self-end md:self-center">
+      <div className="flex items-center gap-2 self-end md:self-center shrink-0">
         {appointment.status === "booked" && (
           <button
             onClick={() => handleStatusUpdate("arrived")}

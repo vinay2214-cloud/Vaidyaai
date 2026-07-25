@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useClinicStore } from "@/store/clinicStore";
 import { Calendar, Cpu, CreditCard, Users, Settings, Activity, PlusCircle } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
+import { AgentStatusBar } from "@/components/AgentStatusBar";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading } = useAuth();
@@ -57,7 +58,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 max-w-5xl w-full mx-auto">{children}</main>
+      <main className="flex-1 p-4 max-w-5xl w-full mx-auto space-y-4">
+        {/* Global AI Workforce Status Bar */}
+        <AgentStatusBar />
+        {children}
+      </main>
 
       {/* Bottom Navigation for Mobile / PWA */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800 flex justify-around py-2.5 px-2">

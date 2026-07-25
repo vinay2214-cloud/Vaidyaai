@@ -6,8 +6,8 @@ import { useClinicStore } from "../store/clinicStore";
 export interface AgentLog {
   id: string;
   agent_name: string;
-  decision_type: str;
-  decision_made: str;
+  decision_type: string;
+  decision_made: string;
   clinic_id: string;
   input_summary?: string;
   output_summary?: string;

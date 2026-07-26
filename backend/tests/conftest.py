@@ -11,6 +11,18 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.fixture(autouse=True)
+def default_test_environment(monkeypatch):
+    """Ensure tests run in development posture with isolated in-memory store by default."""
+    from config import settings
+    import database.firestore as fs
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    monkeypatch.setattr(fs, "_db", None)
+    fs._in_memory_store.clear()
+    return settings
+
+
 @pytest.fixture
 def production_settings(monkeypatch):
     """Force settings into a production posture for fail-closed assertions."""

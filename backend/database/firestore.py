@@ -14,6 +14,9 @@ _in_memory_store: Dict[str, Dict[str, Any]] = {}
 
 async def init_firestore():
     global _db
+    if settings.is_development and os.getenv("FIRESTORE_EMULATOR_HOST") is None:
+        _db = None
+        return None
     if not firebase_admin._apps:
         try:
             cred = credentials.ApplicationDefault()
@@ -39,6 +42,8 @@ async def init_firestore():
 
 def get_firestore_client():
     global _db
+    if settings.is_development and os.getenv("FIRESTORE_EMULATOR_HOST") is None:
+        return None
     if _db is None:
         if not firebase_admin._apps:
             try:

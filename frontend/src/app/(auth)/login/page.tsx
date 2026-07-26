@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase";
+import { setSessionCookie } from "@/lib/auth";
 import { Activity, Phone, ArrowRight, ShieldCheck } from "lucide-react";
 
 export default function LoginPage() {
@@ -43,8 +44,7 @@ export default function LoginPage() {
       setStep("otp");
     } catch (err: any) {
       console.error("SMS send error:", err);
-      // Demo fallback if SMS gateway not configured
-      setStep("otp");
+      setError("Could not send the verification code. Please check the number and try again.");
     } finally {
       setLoading(false);
     }
@@ -56,18 +56,17 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      if (confirmationResult) {
-        await confirmationResult.confirm(otp);
+      if (!confirmationResult) {
+        setError("Verification session expired. Please request a new code.");
+        setStep("phone");
+        return;
       }
+      await confirmationResult.confirm(otp);
+      setSessionCookie();
       router.push("/");
     } catch (err: any) {
       console.error("OTP verification error:", err);
-      // Demo bypass for 123456
-      if (otp === "123456") {
-        router.push("/");
-      } else {
-        setError("Invalid OTP code. Use 123456 for demo.");
-      }
+      setError("Invalid or expired verification code. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -95,13 +94,17 @@ export default function LoginPage() {
         {step === "phone" ? (
           <form onSubmit={handleSendOtp} className="space-y-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+              <label htmlFor="doctor-phone" className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 Doctor Mobile Number
               </label>
               <div className="relative">
                 <span className="absolute left-3.5 top-3.5 text-slate-400 font-medium text-sm">+91</span>
                 <input
+                  id="doctor-phone"
+                  name="phone"
                   type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel-national"
                   placeholder="98765 43210"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
@@ -122,19 +125,23 @@ export default function LoginPage() {
         ) : (
           <form onSubmit={handleVerifyOtp} className="space-y-5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+              <label htmlFor="otp-code" className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 Enter 6-Digit Verification OTP
               </label>
               <input
+                id="otp-code"
+                name="one-time-code"
                 type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
                 maxLength={6}
-                placeholder="123456"
+                placeholder="••••••"
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
                 className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-center font-mono text-xl tracking-widest focus:outline-none focus:border-teal-500"
                 required
               />
-              <p className="text-xs text-slate-500 text-center mt-2">Demo OTP: 123456</p>
+              <p className="text-xs text-slate-500 text-center mt-2">Enter the 6-digit code sent to your mobile.</p>
             </div>
 
             <button

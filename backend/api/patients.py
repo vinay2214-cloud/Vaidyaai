@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -10,6 +11,14 @@ from utils.phone_utils import mask_phone, normalize_phone
 
 logger = logging.getLogger("vaidyaai.api.patients")
 router = APIRouter()
+
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
+# Firestore lacks native substring search; when a search term is provided we scan a
+# bounded window of the clinic's patients and filter in-memory.
+SEARCH_SCAN_LIMIT = 500
+# Upper bound on records fetched per collection when assembling a patient timeline.
+TIMELINE_MAX_RECORDS = 200
 
 
 class PatientCreateRequest(BaseModel):
@@ -27,19 +36,28 @@ class PatientCreateRequest(BaseModel):
 async def list_patients(
     clinic_id: str = Query(...),
     search: Optional[str] = Query(None),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     verify_clinic_access(clinic_id, current_user)
-    patients = await query_documents("patients", [("clinic_id", "==", clinic_id)], limit=50)
 
     if search:
+        candidates = await query_documents(
+            "patients", [("clinic_id", "==", clinic_id)], limit=SEARCH_SCAN_LIMIT
+        )
         s_lower = search.lower()
-        patients = [
-            p for p in patients
-            if s_lower in p.get("name", "").lower() or s_lower in p.get("phone", "").lower() or s_lower in p.get("patient_phone_masked", "").lower()
+        matched = [
+            p for p in candidates
+            if s_lower in p.get("name", "").lower()
+            or s_lower in p.get("phone", "").lower()
+            or s_lower in p.get("patient_phone_masked", "").lower()
         ]
+        return matched[offset:offset + limit]
 
-    return patients
+    return await query_documents(
+        "patients", [("clinic_id", "==", clinic_id)], limit=limit, offset=offset
+    )
 
 
 @router.get("/patients/{id}", tags=["patients"])
@@ -104,12 +122,42 @@ async def get_patient_clinical_timeline(
 
     masked_phone = patient.get("patient_phone_masked")
 
-    appointments = await query_documents("appointments", [("clinic_id", "==", clinic_id), ("patient_id", "==", id)], limit=50)
-    consultations = await query_documents("consultations", [("clinic_id", "==", clinic_id)], limit=50)
-    referrals = await query_documents("referrals", [("clinic_id", "==", clinic_id)], limit=50)
+    appointments = await query_documents(
+        "appointments",
+        [("clinic_id", "==", clinic_id), ("patient_id", "==", id)],
+        limit=TIMELINE_MAX_RECORDS,
+    )
 
-    appt_ids = {a["appointment_id"] for a in appointments}
-    patient_consultations = [c for c in consultations if c.get("appointment_id") in appt_ids]
+    appt_ids = [a["appointment_id"] for a in appointments if a.get("appointment_id")]
+
+    # Consultations are linked to a patient only via their appointment_id, so fetch
+    # per-appointment (concurrently) instead of scanning every clinic consultation.
+    consultations: List[Dict[str, Any]] = []
+    if appt_ids:
+        cons_groups = await asyncio.gather(*[
+            query_documents(
+                "consultations",
+                [("clinic_id", "==", clinic_id), ("appointment_id", "==", appt_id)],
+            )
+            for appt_id in appt_ids
+        ])
+        for group in cons_groups:
+            consultations.extend(group)
+
+    # Referrals are linked to a patient only via their consultation_id; filtering by
+    # clinic_id alone would leak every clinic patient's referrals into this timeline.
+    cons_ids = [c["consultation_id"] for c in consultations if c.get("consultation_id")]
+    referrals: List[Dict[str, Any]] = []
+    if cons_ids:
+        ref_groups = await asyncio.gather(*[
+            query_documents(
+                "referrals",
+                [("clinic_id", "==", clinic_id), ("consultation_id", "==", cons_id)],
+            )
+            for cons_id in cons_ids
+        ])
+        for group in ref_groups:
+            referrals.extend(group)
 
     return {
         "patient_id": id,
@@ -119,6 +167,6 @@ async def get_patient_clinical_timeline(
         "chronic_conditions": patient.get("chronic_conditions", []),
         "total_visits": len(appointments),
         "appointments": appointments,
-        "consultations": patient_consultations,
+        "consultations": consultations,
         "referrals": referrals
     }

@@ -10,6 +10,7 @@ import { PatientFilterBar, PatientFilterType } from "@/components/patients/Patie
 import { PatientCard, PatientData } from "@/components/patients/PatientCard";
 import { SkeletonPatientCard } from "@/components/patients/SkeletonPatientCard";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ErrorState } from "@/components/shared/ErrorState";
 import { WalkInModal } from "@/components/WalkInModal";
 import { Users, PlusCircle } from "lucide-react";
 
@@ -22,11 +23,13 @@ export default function PatientIntelligencePage() {
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [patients, setPatients] = useState<PatientData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const fetchPatients = useCallback(async () => {
     if (!clinicId) return;
     try {
       setLoading(true);
+      setError(false);
       const res = await api.get(`/patients?clinic_id=${clinicId}`);
       
       const enriched: PatientData[] = (res.data || []).map((p: any, idx: number) => ({
@@ -52,6 +55,7 @@ export default function PatientIntelligencePage() {
       setPatients(enriched);
     } catch (e) {
       console.warn("Fetch patients error:", e);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -95,7 +99,7 @@ export default function PatientIntelligencePage() {
     return list;
   }, [filteredPatients, sortBy]);
 
-  const filterCounts: Record<PatientFilterType, number> = {
+  const filterCounts: Record<PatientFilterType, number> = useMemo(() => ({
     ALL: patients.length,
     TODAY: patients.filter((p) => p.status_badge === "TODAY" || p.last_visit_str === "Today").length,
     HIGH_RISK: patients.filter((p) => p.risk_level === "HIGH" || p.risk_level === "CRITICAL").length,
@@ -105,7 +109,7 @@ export default function PatientIntelligencePage() {
     NEW: patients.filter((p) => p.status_badge === "NEW").length,
     CONSENT_PENDING: patients.filter((p) => p.consent_status === "pending").length,
     RECENTLY_ADDED: patients.length
-  };
+  }), [patients]);
 
   return (
     <div className="space-y-4">
@@ -158,6 +162,12 @@ export default function PatientIntelligencePage() {
               <SkeletonPatientCard key={i} />
             ))}
           </div>
+        ) : error ? (
+          <ErrorState
+            title="Unable to Load Patient Records"
+            description="We could not retrieve patient records for this clinic. Please check your connection and try again."
+            onRetry={fetchPatients}
+          />
         ) : sortedPatients.length === 0 ? (
           <EmptyState
             title="No Matching Patient Records Found"

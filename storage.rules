@@ -11,16 +11,14 @@ service firebase.storage {
     }
 
     // ─── Consultation Audio Chunks ────────────────────────────────────────
-    // Uploaded by authenticated doctors via the dashboard.
-    // Read by backend Admin SDK for transcription.
+    // Uploaded by authenticated doctors through the backend API
+    // (POST /api/v1/consultations/upload-chunk), which enforces
+    // verify_clinic_access() and writes via the Admin SDK. Direct client
+    // writes are denied to prevent cross-tenant uploads to another clinic's
+    // consultation path. Read by backend Admin SDK for transcription.
     match /consultations/{consultationId}/{fileName} {
-      // Allow authenticated users to upload audio chunks
-      allow write: if request.auth != null
-        && request.resource.size < 10 * 1024 * 1024  // Max 10MB per chunk
-        && (request.resource.contentType.matches('audio/.*')
-            || request.resource.contentType.matches('application/octet-stream'));
-      // Read by backend only (Admin SDK bypasses rules)
-      allow read: if false;
+      allow write: if false;  // Backend Admin SDK only (tenant-scoped via API)
+      allow read: if false;   // Backend Admin SDK only
     }
 
     // ─── Default deny ─────────────────────────────────────────────────────

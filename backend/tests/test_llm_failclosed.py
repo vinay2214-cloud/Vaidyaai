@@ -1,0 +1,37 @@
+"""Tests for LLM fail-closed behavior (C-4 / H-2).
+
+The Gemini service must degrade to a mock response only in development and must
+raise (fail closed) in any other environment when no model is available.
+"""
+import asyncio
+
+import pytest
+
+from services.gemini import GeminiService
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def test_generate_raises_when_unavailable_in_production(monkeypatch):
+    from config import settings
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    svc = GeminiService()
+    svc.models = {}  # simulate no configured model
+
+    with pytest.raises(RuntimeError):
+        _run(svc.generate("any prompt"))
+
+
+def test_generate_uses_mock_in_development(monkeypatch):
+    from config import settings
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    svc = GeminiService()
+    svc.models = {}  # simulate no configured model
+
+    result = _run(svc.generate("appointment intent please"))
+    assert isinstance(result, str)
+    assert len(result) > 0

@@ -7,6 +7,8 @@ from database.firestore import set_document, get_document, update_document
 from database.postgres import AsyncSessionFactory
 from models.consultation import ReferralTracking
 from services.whatsapp import WhatsAppService
+from utils.phi_anonymiser import anonymise_for_llm
+from utils.phone_utils import mask_phone
 
 logger = logging.getLogger("vaidyaai.agents.referral_coordinator")
 
@@ -39,8 +41,10 @@ class ReferralCoordinatorAgent(BaseAgent):
         prompt = build_referral_extraction_prompt(
             soap_note=soap_note,
             diagnoses=diagnoses,
-            patient_info=f"Phone: {patient_phone}"
+            patient_info=f"Phone: {mask_phone(patient_phone)}"
         )
+        # C-7: anonymise any residual PHI before the payload leaves for the LLM.
+        prompt = anonymise_for_llm(prompt)
 
         referral_res, latency_ms = await self._timed_gemini_json_call(
             task="referral_extraction",
@@ -62,7 +66,7 @@ class ReferralCoordinatorAgent(BaseAgent):
             "referral_id": referral_id,
             "clinic_id": clinic_id,
             "consultation_id": consultation_id,
-            "patient_phone_masked": patient_phone,
+            "patient_phone_masked": mask_phone(patient_phone),
             "speciality": target_speciality,
             "urgency": urgency,
             "clinical_summary": referral_res.get("clinical_summary", ""),

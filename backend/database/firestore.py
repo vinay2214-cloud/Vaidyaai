@@ -116,13 +116,31 @@ async def update_document(collection_name: str, doc_id: str, data: Dict[str, Any
     await asyncio.to_thread(_update_document_sync, collection_name, doc_id, data)
 
 
-def _query_collection_sync(collection_name: str, filters: List[tuple], limit: Optional[int] = None) -> List[Dict[str, Any]]:
+def _delete_document_sync(collection_name: str, doc_id: str) -> None:
+    key = f"{collection_name}/{doc_id}"
+    _in_memory_store.pop(key, None)
+
+    db = get_firestore_client()
+    if db is not None:
+        try:
+            db.collection(collection_name).document(doc_id).delete()
+        except Exception as e:
+            logger.warning(f"Firestore delete_document live write failed: {e}")
+
+
+async def delete_document(collection_name: str, doc_id: str) -> None:
+    await asyncio.to_thread(_delete_document_sync, collection_name, doc_id)
+
+
+def _query_collection_sync(collection_name: str, filters: List[tuple], limit: Optional[int] = None, offset: Optional[int] = None) -> List[Dict[str, Any]]:
     db = get_firestore_client()
     if db is not None:
         try:
             query = db.collection(collection_name)
             for field, op, val in filters:
                 query = query.where(field, op, val)
+            if offset:
+                query = query.offset(offset)
             if limit:
                 query = query.limit(limit)
             docs = query.stream()
@@ -149,13 +167,15 @@ def _query_collection_sync(collection_name: str, filters: List[tuple], limit: Op
                 d = dict(v)
                 d["id"] = k.split("/")[-1]
                 res.append(d)
-                if limit and len(res) >= limit:
-                    break
-    return res
+
+    start = offset or 0
+    if limit is not None:
+        return res[start:start + limit]
+    return res[start:]
 
 
-async def query_collection(collection_name: str, filters: List[tuple], limit: Optional[int] = None) -> List[Dict[str, Any]]:
-    return await asyncio.to_thread(_query_collection_sync, collection_name, filters, limit)
+async def query_collection(collection_name: str, filters: List[tuple], limit: Optional[int] = None, offset: Optional[int] = None) -> List[Dict[str, Any]]:
+    return await asyncio.to_thread(_query_collection_sync, collection_name, filters, limit, offset)
 
 query_documents = query_collection
 

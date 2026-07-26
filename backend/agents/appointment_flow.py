@@ -28,6 +28,7 @@ from tasks.cloud_tasks import (
     cancel_task
 )
 from utils.phone_utils import mask_phone, normalize_phone
+from utils.phi_anonymiser import anonymise_for_llm
 from utils.date_utils import get_current_ist_datetime, get_today_ist_date_str, format_display_time, format_display_date
 
 
@@ -75,7 +76,8 @@ class AppointmentFlowAgent(BaseAgent):
             )
 
         # 3. Call Gemini 1.5 Flash to detect intent and language
-        prompt = build_appointment_intent_prompt(message)
+        # C-7: anonymise the raw patient message before it leaves for the LLM.
+        prompt = build_appointment_intent_prompt(anonymise_for_llm(message))
         intent_data, latency_ms = await self._timed_gemini_json_call(
             task="intent_detection",
             prompt=prompt,

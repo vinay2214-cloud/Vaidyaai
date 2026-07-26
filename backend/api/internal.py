@@ -1,15 +1,16 @@
 import logging
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status, Depends
 from pydantic import BaseModel
 from config import settings
+from api.auth import verify_internal_request
 from agents.appointment_flow import AppointmentFlowAgent
 from agents.billing_pulse import BillingPulseAgent
 from agents.retention_radar import RetentionRadarAgent
 from agents.insight_engine import InsightEngineAgent
 
 logger = logging.getLogger("vaidyaai.api.internal")
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(verify_internal_request)])
 
 appointment_agent = AppointmentFlowAgent()
 billing_agent = BillingPulseAgent()

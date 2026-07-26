@@ -7,6 +7,7 @@ from database.firestore import query_documents, set_document, update_document
 from database.postgres import AsyncSessionFactory
 from models.patient import RetentionOutreach
 from services.whatsapp import WhatsAppService
+from utils.phi_anonymiser import anonymise_for_llm
 from utils.phone_utils import mask_phone
 
 logger = logging.getLogger("vaidyaai.agents.retention_radar")
@@ -57,6 +58,8 @@ class RetentionRadarAgent(BaseAgent):
                 followup_days=followup_days,
                 language_code="te"
             )
+            # C-7: enforce the "all LLM payloads anonymised" invariant.
+            prompt = anonymise_for_llm(prompt)
 
             outreach_data, latency_ms = await self._timed_gemini_json_call(
                 task="retention_outreach_generation",

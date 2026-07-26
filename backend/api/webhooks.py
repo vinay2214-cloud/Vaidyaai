@@ -51,6 +51,21 @@ async def receive_whatsapp_webhook(
     """
     body = await request.body()
 
+    # C-3: Signature verification is mandatory and fails closed in production.
+    if settings.is_production:
+        if settings.WHATSAPP_APP_SECRET == "placeholder_app_secret":
+            logger.error("WHATSAPP_APP_SECRET is not configured in production; rejecting webhook")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Webhook signature verification is not configured"
+            )
+        if not x_hub_signature_256:
+            logger.warning("WhatsApp webhook missing X-Hub-Signature-256 header")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing signature"
+            )
+
     if x_hub_signature_256:
         if not whatsapp_service.verify_webhook_signature(body, x_hub_signature_256):
             logger.warning("WhatsApp webhook signature validation failed")
@@ -74,9 +89,17 @@ async def receive_whatsapp_webhook(
     if phone_number_id:
         clinic = await get_clinic_by_whatsapp_phone_id(phone_number_id)
 
-    clinic_id = clinic.get("clinic_id") if clinic else "demo_clinic_id"
-    phone_id = clinic.get("whatsapp_phone_id") if clinic else settings.WHATSAPP_PHONE_ID
-    access_token = clinic.get("whatsapp_access_token") if clinic else settings.WHATSAPP_ACCESS_TOKEN
+    # C-6: Never fall back to a demo/shared clinic. Ignore messages we cannot
+    # attribute to a known tenant to prevent cross-tenant data processing.
+    if not clinic:
+        logger.warning(
+            f"Ignoring WhatsApp message: no clinic mapped to phone_number_id={phone_number_id}"
+        )
+        return {"status": "ignored", "reason": "unknown_clinic"}
+
+    clinic_id = clinic.get("clinic_id")
+    phone_id = clinic.get("whatsapp_phone_id") or settings.WHATSAPP_PHONE_ID
+    access_token = clinic.get("whatsapp_access_token") or settings.WHATSAPP_ACCESS_TOKEN
 
     try:
         await appointment_flow_agent.handle_incoming_message(
@@ -104,6 +127,21 @@ async def receive_razorpay_webhook(
     Validates HMAC signature and confirms payment with BillingPulseAgent.
     """
     body = await request.body()
+
+    # C-3: Signature verification is mandatory and fails closed in production.
+    if settings.is_production:
+        if settings.RAZORPAY_WEBHOOK_SECRET == "placeholder_webhook_secret":
+            logger.error("RAZORPAY_WEBHOOK_SECRET is not configured in production; rejecting webhook")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Webhook signature verification is not configured"
+            )
+        if not x_razorpay_signature:
+            logger.warning("Razorpay webhook missing X-Razorpay-Signature header")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing signature"
+            )
 
     if x_razorpay_signature and settings.RAZORPAY_WEBHOOK_SECRET != "placeholder_webhook_secret":
         if not razorpay_service.verify_payment_signature(body, x_razorpay_signature):

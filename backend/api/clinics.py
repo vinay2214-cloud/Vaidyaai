@@ -4,9 +4,10 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from firebase_admin import auth as firebase_auth
+from sqlalchemy import delete as sa_delete
 
 from api.auth import get_current_user
-from database.firestore import set_document, get_document
+from database.firestore import set_document, get_document, delete_document
 from database.postgres import AsyncSessionFactory
 from models.clinic import Clinic, Subscription
 
@@ -23,6 +24,45 @@ class ClinicSetupRequest(BaseModel):
     whatsapp_phone_id: Optional[str] = "default_phone_id"
 
 
+async def _reconcile_failed_setup(
+    clinic_id: str,
+    uid: str,
+    pg_clinic_pk: Optional[Any],
+    created_firestore_clinic: bool,
+    created_firestore_user: bool,
+    claim_set: bool,
+) -> None:
+    """Best-effort rollback of a partially completed clinic onboarding.
+
+    Undoes writes in reverse order so a failed setup never leaves a clinic in a
+    half-provisioned state (orphaned Firestore docs, PG rows, or a stale claim).
+    Each step is defensive: reconciliation must not raise.
+    """
+    if claim_set:
+        try:
+            firebase_auth.set_custom_user_claims(uid, None)
+        except Exception as e:
+            logger.error(f"Reconciliation: failed to clear custom claim for {uid}: {e}")
+    if created_firestore_user:
+        try:
+            await delete_document("clinic_users", uid)
+        except Exception as e:
+            logger.error(f"Reconciliation: failed to delete clinic_users/{uid}: {e}")
+    if created_firestore_clinic:
+        try:
+            await delete_document("clinics", clinic_id)
+        except Exception as e:
+            logger.error(f"Reconciliation: failed to delete clinics/{clinic_id}: {e}")
+    if pg_clinic_pk is not None:
+        try:
+            async with AsyncSessionFactory() as db:
+                # Subscription rows cascade-delete via the clinic FK (ondelete=CASCADE).
+                await db.execute(sa_delete(Clinic).where(Clinic.id == pg_clinic_pk))
+                await db.commit()
+        except Exception as e:
+            logger.error(f"Reconciliation: failed to delete PG clinic {pg_clinic_pk}: {e}")
+
+
 @router.post("/clinics/setup", tags=["clinics"])
 async def setup_new_clinic(
     req: ClinicSetupRequest,
@@ -32,6 +72,11 @@ async def setup_new_clinic(
     POST /api/v1/clinics/setup
     Creates new clinic profile in Firestore and PostgreSQL, sets Firebase custom claim,
     and returns generated clinic_id.
+
+    All four writes (PostgreSQL clinic+subscription, Firestore clinic doc, Firestore
+    user mapping, Firebase custom claim) must succeed. Any failure triggers a
+    best-effort rollback so onboarding is all-or-nothing and the tenant is never
+    left half-provisioned.
     """
     uid = current_user["uid"]
     now_utc = datetime.now(timezone.utc)
@@ -43,7 +88,6 @@ async def setup_new_clinic(
         "procedure_paise": 50000
     }
 
-    # 1. Create Firestore clinics/{id} document
     clinic_firestore = {
         "clinic_id": clinic_id,
         "name": req.clinic_name,
@@ -64,9 +108,7 @@ async def setup_new_clinic(
         "is_active": True,
         "created_at": now_utc
     }
-    await set_document("clinics", clinic_id, clinic_firestore)
 
-    # 2. Create Firestore clinic_users/{uid} document
     user_mapping = {
         "clinic_id": clinic_id,
         "doctor_name": req.doctor_name,
@@ -75,44 +117,71 @@ async def setup_new_clinic(
         "role": "doctor",
         "created_at": now_utc
     }
-    await set_document("clinic_users", uid, user_mapping)
 
-    # 3. Create PostgreSQL clinic & subscription records
-    async with AsyncSessionFactory() as db:
-        clinic_pg = Clinic(
-            firebase_clinic_id=clinic_id,
-            name=req.clinic_name,
-            doctor_name=req.doctor_name,
-            phone=req.phone,
-            whatsapp_phone_id=req.whatsapp_phone_id or "default_phone_id",
-            location=req.location,
-            subscription_plan="essential",
-            is_active=True,
-            onboarding_complete=True,
-            created_at=now_utc
-        )
-        db.add(clinic_pg)
-        await db.commit()
-        await db.refresh(clinic_pg)
+    pg_clinic_pk: Optional[Any] = None
+    created_firestore_clinic = False
+    created_firestore_user = False
+    claim_set = False
 
-        sub = Subscription(
-            clinic_id=clinic_pg.id,
-            plan="essential",
-            monthly_fee_paise=299900,
-            status="trial",
-            started_at=now_utc
-        )
-        db.add(sub)
-        await db.commit()
-
-    # 4. Set Firebase custom claims
     try:
+        # 1. Create PostgreSQL clinic & subscription atomically (single transaction).
+        async with AsyncSessionFactory() as db:
+            clinic_pg = Clinic(
+                firebase_clinic_id=clinic_id,
+                name=req.clinic_name,
+                doctor_name=req.doctor_name,
+                phone=req.phone,
+                whatsapp_phone_id=req.whatsapp_phone_id or "default_phone_id",
+                location=req.location,
+                subscription_plan="essential",
+                is_active=True,
+                onboarding_complete=True,
+                created_at=now_utc
+            )
+            db.add(clinic_pg)
+            await db.flush()
+
+            sub = Subscription(
+                clinic_id=clinic_pg.id,
+                plan="essential",
+                monthly_fee_paise=299900,
+                status="trial",
+                started_at=now_utc
+            )
+            db.add(sub)
+            await db.commit()
+            pg_clinic_pk = clinic_pg.id
+
+        # 2. Create Firestore clinics/{id} document.
+        await set_document("clinics", clinic_id, clinic_firestore)
+        created_firestore_clinic = True
+
+        # 3. Create Firestore clinic_users/{uid} document.
+        await set_document("clinic_users", uid, user_mapping)
+        created_firestore_user = True
+
+        # 4. Set Firebase custom claims (fatal: without this the doctor cannot
+        #    access their own tenant, so a failure must abort onboarding).
         firebase_auth.set_custom_user_claims(uid, {
             "clinic_id": clinic_id,
             "role": "doctor"
         })
+        claim_set = True
+
     except Exception as e:
-        logger.warning(f"Could not set custom claim on user {uid}: {e}")
+        logger.error(f"Clinic onboarding failed for uid {uid} (clinic {clinic_id}): {e}. Rolling back.")
+        await _reconcile_failed_setup(
+            clinic_id=clinic_id,
+            uid=uid,
+            pg_clinic_pk=pg_clinic_pk,
+            created_firestore_clinic=created_firestore_clinic,
+            created_firestore_user=created_firestore_user,
+            claim_set=claim_set,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Clinic onboarding failed and was rolled back. Please retry."
+        )
 
     logger.info(f"Onboarding setup complete for clinic '{clinic_id}' ({req.clinic_name})")
     return {

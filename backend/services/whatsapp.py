@@ -157,24 +157,37 @@ class WhatsAppService:
         }
         
         async with httpx.AsyncClient() as client:
+            last_error: Optional[Exception] = None
             for attempt in range(3):
                 try:
                     r = await client.post(url, headers=headers, json=payload, timeout=10.0)
                     r.raise_for_status()
                     return r.json()
                 except httpx.HTTPStatusError as e:
-                    logger.warning(f"WhatsApp API call (attempt {attempt + 1}) returned status {e.response.status_code}. Using dev mock fallback.")
+                    last_error = e
+                    logger.warning(f"WhatsApp API call (attempt {attempt + 1}) returned status {e.response.status_code}.")
                     if e.response.status_code in [401, 403, 404] or attempt == 2:
-                        return {
-                            "messaging_product": "whatsapp",
-                            "contacts": [{"input": to, "wa_id": to}],
-                            "messages": [{"id": "wamid_mock_id"}]
-                        }
+                        return self._delivery_failure(to, last_error)
                 except Exception as e:
+                    last_error = e
                     logger.warning(f"WhatsApp API connection error (attempt {attempt + 1}): {e}")
                     if attempt == 2:
-                        return {
-                            "messaging_product": "whatsapp",
-                            "contacts": [{"input": to, "wa_id": to}],
-                            "messages": [{"id": "wamid_mock_id"}]
-                        }
+                        return self._delivery_failure(to, last_error)
+
+    def _delivery_failure(self, to: str, error: Optional[Exception]) -> Dict[str, Any]:
+        """Handle a failed WhatsApp send.
+
+        In development we return a mock success envelope so local flows can be
+        exercised without live Meta credentials. In every other environment we
+        fail closed and raise so callers never mistake an undelivered message
+        for a delivered one.
+        """
+        if settings.is_development:
+            logger.warning("WhatsApp send failed. Using dev mock fallback (development only).")
+            return {
+                "messaging_product": "whatsapp",
+                "contacts": [{"input": to, "wa_id": to}],
+                "messages": [{"id": "wamid_mock_id"}]
+            }
+        logger.error(f"WhatsApp send failed after retries in a non-development environment: {error}")
+        raise RuntimeError(f"WhatsApp delivery failed: {error}")

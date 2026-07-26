@@ -80,8 +80,14 @@ class RazorpayService:
                 }
             except Exception as e:
                 logger.error(f"Razorpay payment link creation failed for invoice {invoice_number}: {e}")
+                if not settings.is_development:
+                    raise RuntimeError(f"Razorpay payment link creation failed: {e}")
 
-        # Fallback mock payment link if credentials/SDK not active
+        # Fallback mock payment link if credentials/SDK not active (development only)
+        if not settings.is_development:
+            logger.error("Razorpay client unavailable in a non-development environment; cannot create payment link.")
+            raise RuntimeError("Razorpay client is unavailable")
+        logger.warning(f"Using mock Razorpay payment link for invoice {invoice_number} (development only).")
         mock_url = f"https://rzp.io/i/mock_{invoice_number}"
         return {
             "payment_link_id": f"plink_mock_{invoice_number}",
@@ -157,7 +163,13 @@ class RazorpayService:
                 return res
             except Exception as e:
                 logger.error(f"Razorpay subscription creation failed: {e}")
+                if not settings.is_development:
+                    raise RuntimeError(f"Razorpay subscription creation failed: {e}")
 
+        if not settings.is_development:
+            logger.error("Razorpay client unavailable in a non-development environment; cannot create subscription.")
+            raise RuntimeError("Razorpay client is unavailable")
+        logger.warning(f"Using mock Razorpay subscription for plan {plan_id} (development only).")
         return {"id": f"sub_mock_{plan_id}", "status": "created", "mock": True}
 
     async def create_subscription(

@@ -82,26 +82,47 @@ class GeminiService:
         model: str = "gemini-1.5-flash"
     ) -> str:
         if not self.models or model not in self.models:
-            logger.warning(f"Vertex AI model '{model}' unavailable or unconfigured. Using mock fallback response.")
-            return self._mock_fallback_response(prompt)
+            if settings.is_development:
+                logger.warning(f"Vertex AI model '{model}' unavailable. Using mock fallback (development only).")
+                return self._mock_fallback_response(prompt)
+            logger.error(f"Vertex AI model '{model}' unavailable or unconfigured in a non-development environment.")
+            raise RuntimeError(f"LLM model '{model}' is unavailable")
 
         model_name = model
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
 
+        last_error: Optional[Exception] = None
         for attempt in range(3):
             try:
                 generative_model = self.models[model_name]
-                response = await asyncio.to_thread(
-                    generative_model.generate_content, full_prompt
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        generative_model.generate_content, full_prompt
+                    ),
+                    timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS
                 )
                 return response.text.strip()
+            except asyncio.TimeoutError as e:
+                last_error = e
+                logger.warning(
+                    f"Gemini call attempt {attempt + 1} timed out after "
+                    f"{settings.LLM_REQUEST_TIMEOUT_SECONDS}s"
+                )
+                if attempt < 2:
+                    await asyncio.sleep(1)
             except Exception as e:
+                last_error = e
                 logger.warning(f"Gemini call attempt {attempt + 1} failed: {e}")
-                if attempt == 2:
-                    return self._mock_fallback_response(prompt)
-                await asyncio.sleep(1)
+                if attempt < 2:
+                    await asyncio.sleep(1)
 
-        return self._mock_fallback_response(prompt)
+        # All retries exhausted. Only degrade to a mock response in development;
+        # fail closed in every other environment so callers can react safely.
+        if settings.is_development:
+            logger.warning("Gemini call failed after retries. Using mock fallback (development only).")
+            return self._mock_fallback_response(prompt)
+        logger.error(f"Gemini call failed after retries in a non-development environment: {last_error}")
+        raise RuntimeError(f"LLM generation failed: {last_error}")
 
     def _mock_fallback_response(self, prompt: str) -> str:
         """Fallback mock responses when Vertex AI credentials are not present locally."""
@@ -148,4 +169,9 @@ class GeminiService:
                     return json.loads(match.group())
                 except json.JSONDecodeError:
                     pass
-            return {"status": "success"}
+
+        # Fail closed: never fabricate a success-shaped payload from an unparseable
+        # response. Safety-critical callers (e.g. prescription_safe) depend on this
+        # raising so they can escalate to mandatory manual review.
+        logger.error(f"Unable to parse JSON from LLM response (first 200 chars): {clean[:200]!r}")
+        raise ValueError("LLM returned an unparseable JSON response")

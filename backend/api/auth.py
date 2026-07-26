@@ -1,8 +1,11 @@
 import asyncio
+import hmac
 import logging
 from typing import Dict, Any, Optional
 from fastapi import Depends, HTTPException, Header, status
 from firebase_admin import auth as firebase_auth
+
+from config import settings
 
 logger = logging.getLogger("vaidyaai.api.auth")
 
@@ -73,3 +76,47 @@ def verify_clinic_access(clinic_id_param: str, current_user: Dict[str, Any] = De
             detail="Access denied: you do not have permission to access this clinic's resources"
         )
     return current_user
+
+
+async def verify_internal_request(
+    x_internal_task_secret: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+) -> None:
+    """
+    Authenticate requests to /internal/* endpoints invoked by GCP Cloud Tasks /
+    Cloud Scheduler. Accepts either:
+      - A shared secret in the X-Internal-Task-Secret header matching
+        settings.INTERNAL_TASK_SECRET, or
+      - A valid Firebase/GCP OIDC bearer token (verified via Firebase Admin).
+
+    Fails closed: in production a misconfigured/placeholder secret is rejected.
+    """
+    configured_secret = settings.INTERNAL_TASK_SECRET
+
+    if settings.is_production and (
+        not configured_secret or configured_secret == "placeholder_internal_secret"
+    ):
+        logger.error("INTERNAL_TASK_SECRET is not configured in production; rejecting internal request")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Internal task authentication is not configured"
+        )
+
+    if x_internal_task_secret and configured_secret and hmac.compare_digest(
+        x_internal_task_secret, configured_secret
+    ):
+        return None
+
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "").strip()
+        try:
+            await asyncio.to_thread(firebase_auth.verify_id_token, token)
+            return None
+        except Exception as e:
+            logger.warning(f"Internal request OIDC verification failed: {e}")
+
+    logger.warning("Rejected unauthenticated /internal request")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Unauthorized internal request"
+    )

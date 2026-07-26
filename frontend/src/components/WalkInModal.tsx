@@ -55,6 +55,7 @@ export function WalkInModal() {
       <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
         <button
           onClick={() => setOpen(false)}
+          aria-label="Close dialog"
           className="absolute right-4 top-4 text-slate-400 hover:text-white"
         >
           <X className="w-5 h-5" />

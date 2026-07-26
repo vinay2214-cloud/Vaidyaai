@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any, List
 from agents.base_agent import BaseAgent
 from prompts.drug_safety import build_drug_safety_prompt
 from database.firestore import get_document, update_document
+from utils.phi_anonymiser import anonymise_for_llm
 from utils.phone_utils import mask_phone
 
 logger = logging.getLogger("vaidyaai.agents.prescription_safe")
@@ -52,24 +53,62 @@ class PrescriptionSafeAgent(BaseAgent):
             patient_age=age,
             patient_gender=gender
         )
+        # C-7: anonymise any PHI before it leaves for the LLM.
+        prompt = anonymise_for_llm(prompt)
 
-        safety_res, latency_ms = await self._timed_gemini_json_call(
-            task="prescription_safety_check",
-            prompt=prompt,
-            model="gemini-1.5-flash"
-        )
+        now_utc = datetime.now(timezone.utc)
 
-        is_safe = safety_res.get("is_safe", True)
+        # C-4: This is a safety-critical evaluation and MUST fail closed. If the
+        # LLM is unavailable or returns an unusable result, do not assume the
+        # prescription is safe — flag it for mandatory manual review.
+        try:
+            safety_res, latency_ms = await self._timed_gemini_json_call(
+                task="prescription_safety_check",
+                prompt=prompt,
+                model="gemini-1.5-flash"
+            )
+        except Exception as e:
+            logger.error(f"Drug safety evaluation failed; failing closed for consultation {consultation_id}: {e}")
+            safety_eval = {
+                "is_safe": False,
+                "confidence_score": 0.0,
+                "warnings_count": 1,
+                "warnings": [{
+                    "severity": "high",
+                    "message": "Automated drug-safety check unavailable. Manual pharmacist/doctor review required before dispensing."
+                }],
+                "safety_summary": "Safety check could not be completed automatically. Manual review required.",
+                "requires_manual_review": True,
+                "evaluated_at": now_utc,
+                "overridden": False
+            }
+            await update_document("consultations", consultation_id, {
+                "safety_evaluation": safety_eval,
+                "updated_at": now_utc
+            })
+            await self.logger.log_decision(
+                decision_type="drug_safety_unavailable",
+                decision_made=f"Drug safety check failed closed for {len(medications)} drugs. Manual review required.",
+                clinic_id=clinic_id,
+                consultation_id=consultation_id,
+                model_used="gemini-1.5-flash"
+            )
+            return safety_eval
+
+        # Fail closed if the model omits an explicit verdict.
+        is_safe = safety_res.get("is_safe")
+        if is_safe is None:
+            is_safe = False
         warnings = safety_res.get("warnings", [])
         summary = safety_res.get("safety_summary", "Prescription safety check complete.")
 
-        now_utc = datetime.now(timezone.utc)
         safety_eval = {
             "is_safe": is_safe,
-            "confidence_score": safety_res.get("confidence_score", 0.95),
+            "confidence_score": safety_res.get("confidence_score", 0.0 if not is_safe else 0.95),
             "warnings_count": len(warnings),
             "warnings": warnings,
             "safety_summary": summary,
+            "requires_manual_review": not is_safe,
             "evaluated_at": now_utc,
             "overridden": False
         }

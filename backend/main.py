@@ -24,7 +24,12 @@ _startup_checks: Dict[str, Any] = {}
 async def lifespan(app: FastAPI):
     # Startup Validation
     logger.info(f"Initializing VaidyaAI Agents system (Project: '{settings.GOOGLE_CLOUD_PROJECT}', Region: '{settings.GCP_REGION}')...")
-    
+
+    # 0. Fail-closed production configuration validation.
+    # Refuse to boot when ENVIRONMENT=production but secrets/database are still placeholders.
+    settings.validate_production()
+    _startup_checks["config"] = "validated" if settings.is_production else f"unenforced ({settings.ENVIRONMENT})"
+
     # 1. Cloud Logging
     try:
         import google.cloud.logging
@@ -127,6 +132,30 @@ app.include_router(patients_router, prefix="/api/v1", tags=["patients"])
 app.include_router(clinics_router, prefix="/api/v1", tags=["clinics"])
 app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
 app.include_router(internal_router, prefix="/internal", tags=["internal"])
+
+
+@app.get("/livez", tags=["health"])
+async def livez():
+    """Liveness probe. Trivial and dependency-free so Cloud Run can distinguish
+    a hung/dead container from a merely-degraded one. Never touches Gemini/DB."""
+    return {"status": "alive"}
+
+
+@app.get("/readyz", tags=["health"])
+async def readyz():
+    """Readiness probe. Reports whether startup completed and configuration was
+    validated. Returns 503 until the lifespan startup has populated its checks so
+    Cloud Run withholds traffic from a container that has not finished booting."""
+    if not _startup_checks:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "starting"}
+        )
+    return {
+        "status": "ready",
+        "environment": settings.ENVIRONMENT,
+        "checks": _startup_checks
+    }
 
 
 @app.get("/health", tags=["health"])

@@ -193,6 +193,20 @@ class BillingPulseAgent(BaseAgent):
                 logger.warning(f"Payment confirmed for unknown payment_link_id '{razorpay_payment_link_id}'")
                 return {"status": "not_found"}
 
+            # Idempotency guard: Razorpay may deliver the same webhook more than
+            # once (documented retry behaviour) and a replayed signed payload must
+            # not double-count collected revenue in the daily P&L summary.
+            if invoice.status == "paid":
+                logger.info(
+                    f"Invoice {invoice.invoice_number} already marked paid; "
+                    f"ignoring duplicate payment webhook for '{razorpay_payment_link_id}'"
+                )
+                return {
+                    "status": "already_paid",
+                    "invoice_number": invoice.invoice_number,
+                    "amount_paise": amount_paise
+                }
+
             now = datetime.now(timezone.utc)
             invoice.status = "paid"
             invoice.payment_method = payment_method
@@ -281,6 +295,9 @@ class BillingPulseAgent(BaseAgent):
                 patients_seen=1,
                 total_billed_paise=amount_paise,
                 total_collected_paise=amount_paise,
+                upi_paise=0,
+                cash_paise=0,
+                card_paise=0,
                 invoice_count=1
             )
             db.add(pl)

@@ -1,20 +1,29 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useClinicStore } from "@/store/clinicStore";
-import { Calendar, Cpu, CreditCard, Users, Settings, Activity, PlusCircle } from "lucide-react";
+import { Calendar, Cpu, CreditCard, Users, Settings, Activity, PlusCircle, LogOut } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { AgentStatusBar } from "@/components/AgentStatusBar";
+import { ErrorState } from "@/components/shared/ErrorState";
+import { logout } from "@/lib/auth";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { loading } = useAuth();
+  const { user, loading, error } = useAuth();
+  const router = useRouter();
   const pathname = usePathname();
   const clinicName = useClinicStore((state) => state.clinicName);
   const doctorName = useClinicStore((state) => state.doctorName);
   const setWalkInModalOpen = useUIStore((state) => state.setWalkInModalOpen);
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/login");
+    }
+  }, [loading, user, router]);
 
   const navItems = [
     { label: "Today Queue", href: "/", icon: Calendar },
@@ -24,13 +33,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { label: "Settings", href: "/settings", icon: Settings },
   ];
 
-  if (loading) {
+  if (loading || !user) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Activity className="w-10 h-10 text-teal-400 animate-pulse" />
           <p className="text-slate-400 text-sm font-medium">Loading VaidyaAI Workspace...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <ErrorState
+          title="No Clinic Access"
+          description="Your account is not linked to an active clinic. Please contact your administrator to complete onboarding, then sign in again."
+          onRetry={() => logout()}
+        />
       </div>
     );
   }
@@ -49,12 +70,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </div>
 
-        <button
-          onClick={() => setWalkInModalOpen(true)}
-          className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-lg shadow-teal-500/10 focus:ring-2 focus:ring-teal-400 focus:outline-none"
-        >
-          <PlusCircle className="w-4 h-4" /> Walk-In Patient
-        </button>
+        <div className="flex items-center">
+          <button
+            onClick={() => setWalkInModalOpen(true)}
+            className="px-3.5 py-2 bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-lg shadow-teal-500/10 focus:ring-2 focus:ring-teal-400 focus:outline-none"
+          >
+            <PlusCircle className="w-4 h-4" /> Walk-In Patient
+          </button>
+
+          <button
+            onClick={() => logout()}
+            aria-label="Sign out"
+            title="Sign out"
+            className="ml-2 px-2.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-700 focus:ring-2 focus:ring-teal-400 focus:outline-none"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </header>
 
       {/* Global AI Workforce Status Bar */}

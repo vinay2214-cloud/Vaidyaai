@@ -6,6 +6,7 @@ from prompts.insight_report import build_insight_report_prompt
 from database.firestore import query_documents, set_document, get_document
 from database.postgres import AsyncSessionFactory
 from services.whatsapp import WhatsAppService
+from utils.phi_anonymiser import anonymise_for_llm
 
 logger = logging.getLogger("vaidyaai.agents.insight_engine")
 
@@ -87,6 +88,8 @@ class InsightEngineAgent(BaseAgent):
 
         # 2. Call Gemini 1.5 Flash for executive report generation
         prompt = build_insight_report_prompt(clinic_name, doctor_name, metrics_summary)
+        # C-7: defensively strip any PHI before the payload leaves for the LLM.
+        prompt = anonymise_for_llm(prompt)
         insight_res, latency_ms = await self._timed_gemini_json_call(
             task="weekly_insight_report",
             prompt=prompt,

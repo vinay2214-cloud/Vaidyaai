@@ -1,6 +1,9 @@
+"use client";
+
 import React from "react";
-import { Activity, Heart, Thermometer, Wind, Gauge, Scale, AlertTriangle } from "lucide-react";
-import clsx from "clsx";
+import { cn } from "@/lib/cn";
+import { Panel, SectionHeader } from "@/components/design-system";
+import { Activity, Heart, Thermometer, Wind, Scale, Ruler } from "lucide-react";
 
 export interface VitalsData {
   bp_sys: number;
@@ -8,90 +11,50 @@ export interface VitalsData {
   pulse: number;
   temperature: number;
   spo2: number;
-  resp_rate: number;
-  weight_kg: number;
-  height_cm: number;
-  bmi: number;
-  recorded_at: string;
+  resp_rate?: number;
+  weight_kg?: number;
+  height_cm?: number;
+  bmi?: number;
+  recorded_at?: string;
 }
 
 interface VitalsCardProps {
   vitals: VitalsData;
-  className?: string;
 }
 
-export const VitalsCard: React.FC<VitalsCardProps> = ({ vitals, className }) => {
-  const isBpAbnormal = vitals.bp_sys > 130 || vitals.bp_dia > 85;
-  const isSpo2Abnormal = vitals.spo2 < 95;
+export const VitalsCard: React.FC<VitalsCardProps> = ({ vitals }) => {
+  const items = [
+    { icon: Activity, label: "Blood Pressure", value: `${vitals.bp_sys}/${vitals.bp_dia} mmHg`, color: vitals.bp_sys > 140 ? "text-red-400" : "text-foreground" },
+    { icon: Heart, label: "Pulse", value: `${vitals.pulse} bpm`, color: "text-foreground" },
+    { icon: Thermometer, label: "Temperature", value: `${vitals.temperature}°F`, color: vitals.temperature > 99.5 ? "text-orange-400" : "text-foreground" },
+    { icon: Wind, label: "SpO2", value: `${vitals.spo2}%`, color: "text-foreground" },
+    { icon: Activity, label: "Respiratory Rate", value: vitals.resp_rate ? `${vitals.resp_rate}/min` : "—", color: "text-foreground" },
+    { icon: Scale, label: "Weight", value: vitals.weight_kg ? `${vitals.weight_kg} kg` : "—", color: "text-foreground" },
+    { icon: Ruler, label: "Height", value: vitals.height_cm ? `${vitals.height_cm} cm` : "—", color: "text-foreground" },
+    { icon: Activity, label: "BMI", value: vitals.bmi ? `${vitals.bmi}` : "—", color: "text-foreground" },
+  ];
 
   return (
-    <div className={clsx("bg-slate-800/80 border border-slate-700/60 rounded-2xl p-4.5 space-y-3.5 shadow-sm", className)}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5 text-teal-400" />
-          <h3 className="text-sm font-bold text-white">Vitals & Biometrics</h3>
-        </div>
-        <span className="text-[11px] font-mono text-slate-400">
-          Last Recorded: <strong className="text-slate-200">{vitals.recorded_at}</strong>
-        </span>
+    <Panel padding="md">
+      <SectionHeader
+        icon={Activity}
+        title="Vitals"
+        subtitle={vitals.recorded_at ? `Recorded ${vitals.recorded_at}` : undefined}
+      />
+      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div key={item.label} className="panel p-3 border border-border bg-background-elevated/50">
+              <div className="flex items-center gap-1.5 text-foreground-subtle mb-1">
+                <Icon className="w-3.5 h-3.5" />
+                <span className="text-[10px] uppercase font-semibold">{item.label}</span>
+              </div>
+              <div className={cn("text-lg font-semibold", item.color)}>{item.value}</div>
+            </div>
+          );
+        })}
       </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        {/* BP */}
-        <div
-          className={clsx(
-            "border rounded-xl p-3 space-y-1",
-            isBpAbnormal ? "bg-amber-500/10 border-amber-500/30" : "bg-slate-900/60 border-slate-700/50"
-          )}
-        >
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-            Blood Pressure
-            {isBpAbnormal && <AlertTriangle className="w-3 h-3 text-amber-400" />}
-          </span>
-          <p className={clsx("text-lg font-bold font-mono", isBpAbnormal ? "text-amber-400" : "text-teal-400")}>
-            {vitals.bp_sys}/{vitals.bp_dia} <span className="text-xs font-normal text-slate-400">mmHg</span>
-          </p>
-        </div>
-
-        {/* Pulse */}
-        <div className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-3 space-y-1">
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Pulse Rate</span>
-          <p className="text-lg font-bold text-emerald-400 font-mono">
-            {vitals.pulse} <span className="text-xs font-normal text-slate-400">bpm</span>
-          </p>
-        </div>
-
-        {/* SpO2 */}
-        <div
-          className={clsx(
-            "border rounded-xl p-3 space-y-1",
-            isSpo2Abnormal ? "bg-rose-500/10 border-rose-500/30" : "bg-slate-900/60 border-slate-700/50"
-          )}
-        >
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block flex items-center justify-between">
-            SpO₂ Saturation
-            {isSpo2Abnormal && <AlertTriangle className="w-3 h-3 text-rose-400" />}
-          </span>
-          <p className={clsx("text-lg font-bold font-mono", isSpo2Abnormal ? "text-rose-400" : "text-teal-400")}>
-            {vitals.spo2}%
-          </p>
-        </div>
-
-        {/* Temperature */}
-        <div className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-3 space-y-1">
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Temperature</span>
-          <p className="text-lg font-bold text-purple-300 font-mono">
-            {vitals.temperature}°F
-          </p>
-        </div>
-
-        {/* Weight & BMI */}
-        <div className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-3 space-y-1 col-span-2 sm:col-span-4 flex items-center justify-between text-xs font-mono">
-          <span>Weight: <strong className="text-white">{vitals.weight_kg} kg</strong></span>
-          <span>Height: <strong className="text-white">{vitals.height_cm} cm</strong></span>
-          <span>BMI: <strong className="text-teal-400">{vitals.bmi} kg/m²</strong> (Normal)</span>
-        </div>
-      </div>
-    </div>
+    </Panel>
   );
 };

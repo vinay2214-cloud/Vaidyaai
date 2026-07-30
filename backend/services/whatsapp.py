@@ -25,14 +25,14 @@ class WhatsAppService:
 
     async def send_text(
         self,
-        to: str,
-        message: str,
+        to: Optional[str] = None,
+        message: str = "",
         phone_id: Optional[str] = None,
         access_token: Optional[str] = None,
         to_phone: Optional[str] = None,
         clinic_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        target_to = to_phone or to
+        target_to = to_phone or to or ""
         return await self._send(
             message_obj={"type": "text", "text": {"body": message, "preview_url": False}},
             to=target_to,

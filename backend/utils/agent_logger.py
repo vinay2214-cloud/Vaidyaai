@@ -10,7 +10,7 @@ try:
     cloud_client = google.cloud.logging.Client()
     gcp_logger = cloud_client.logger("vaidyaai-agents")
 except Exception as e:
-    logger.warning(f"Google Cloud Logging client not initialized: {e}")
+    logger.debug(f"Google Cloud Logging client not active: {e}")
     gcp_logger = None
 
 
@@ -84,12 +84,16 @@ class AgentLogger:
             except Exception as e:
                 logger.error(f"Cloud Logging write failed: {e}")
 
-        # 2. Write to Firestore agent_logs collection (for real-time dashboard feed)
+        # 2. Write to Firestore agent_logs collection (or in-memory store in dev)
         try:
-            from database.firestore import get_firestore_client
+            from database.firestore import get_firestore_client, set_document
             db = get_firestore_client()
-            await asyncio.to_thread(
-                db.collection("agent_logs").add, payload
-            )
+            if db is not None:
+                await asyncio.to_thread(
+                    db.collection("agent_logs").add, payload
+                )
+            else:
+                log_id = f"log_{int(now.timestamp() * 1000)}"
+                await set_document("agent_logs", log_id, payload)
         except Exception as e:
-            logger.error(f"Firestore agent_logs write failed: {e}")
+            logger.debug(f"Firestore agent_logs write error: {e}")

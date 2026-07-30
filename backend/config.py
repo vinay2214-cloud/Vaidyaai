@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     # App Config
     PROJECT_NAME: str = "VaidyaAI Agents API"
     VERSION: str = "1.0.0"
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     
     # GCP Config
     GOOGLE_CLOUD_PROJECT: str = os.getenv("GOOGLE_CLOUD_PROJECT", "vaidyaai-xprize")

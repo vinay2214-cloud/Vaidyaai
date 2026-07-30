@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE } from "./lib/auth";
 
+const SESSION_COOKIE = "vaidyaai_session";
 const PUBLIC_PATHS = ["/login"];
 
 export function middleware(req: NextRequest) {

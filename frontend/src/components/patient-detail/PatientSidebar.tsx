@@ -1,114 +1,114 @@
+"use client";
+
 import React from "react";
-import { AgentCard } from "../shared/AgentCard";
-import { DecisionCard } from "../shared/DecisionCard";
-import { Cpu, Bot, ShieldCheck } from "lucide-react";
+import { Panel, SectionHeader, ActivityFeed, ActivityItem, AIStatus } from "@/components/design-system";
+import { Cpu, Bot, Activity } from "lucide-react";
 
 export const PatientSidebar: React.FC = () => {
-  const patientAgents = [
+  const decisions: ActivityItem[] = [
     {
-      name: "Agent 2: ClinicalScribe",
-      agentId: "clinical_scribe",
-      role: "Ambient Audio & SOAP Note Generation",
-      status: "active" as const,
-      lastTask: "Diarized 4-min Audio & Generated ICD-10 Note",
-      activityCount: 18,
-      health: 98,
-      latencyMs: 1450
+      id: "dec_1",
+      time: "10:20",
+      agent: "ClinicalScribe",
+      agentColor: "teal",
+      message: "Generated SOAP note & ICD-10 diagnoses for Type-2 Diabetes consult.",
+      status: "completed",
+      details: "gemini-1.5-pro • 1450ms",
     },
     {
-      name: "Agent 5: PrescriptionSafe",
-      agentId: "prescription_safe",
-      role: "Drug Interaction Audit & Allergy Check",
-      status: "active" as const,
-      lastTask: "Audited Metformin + Glimepiride (0 Critical Conflicts)",
-      activityCount: 18,
-      health: 100,
-      latencyMs: 290
+      id: "dec_2",
+      time: "10:22",
+      agent: "PrescriptionSafe",
+      agentColor: "red",
+      message: "Audited prescription regimen: Metformin 500mg (0 conflicts).",
+      status: "completed",
+      details: "gemini-1.5-flash • 290ms",
     },
     {
-      name: "Agent 6: InsightEngine",
-      agentId: "insight_engine",
-      role: "Longitudinal AI Summary & Care Gaps",
-      status: "active" as const,
-      lastTask: "Generated Longitudinal Summary Package",
-      activityCount: 4,
-      health: 97,
-      latencyMs: 1200
+      id: "dec_3",
+      time: "10:23",
+      agent: "InsightEngine",
+      agentColor: "teal",
+      message: "Updated longitudinal summary & flagged care gaps.",
+      status: "completed",
+      details: "gemini-1.5-pro • 1200ms",
     },
     {
-      name: "Agent 4: RetentionRadar",
-      agentId: "retention_radar",
-      role: "Chronic Disease & Follow-Up Tracking",
-      status: "active" as const,
-      lastTask: "Scheduled 30-Day Follow-Up Outreach",
-      activityCount: 8,
-      health: 96,
-      latencyMs: 820
+      id: "dec_4",
+      time: "10:25",
+      agent: "RetentionRadar",
+      agentColor: "orange",
+      message: "Scheduled 30-day follow-up outreach.",
+      status: "running",
+      details: "WhatsApp Cloud API • English / Hindi",
     },
-    {
-      name: "Agent 7: ReferralCoordinator",
-      agentId: "referral_coordinator",
-      role: "Specialist Referral Letter Extraction",
-      status: "active" as const,
-      lastTask: "Drafted Cardiology Referral Letter",
-      activityCount: 5,
-      health: 99,
-      latencyMs: 650
-    }
   ];
 
   return (
     <aside className="space-y-4">
-      {/* AI Workforce Panel */}
-      <div className="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-4 space-y-3 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Cpu className="w-4 h-4 text-teal-400" />
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Active Patient AI Workforce</h3>
+      <Panel padding="md">
+        <SectionHeader
+          icon={Cpu}
+          title="Active Patient AI Workforce"
+          action={<AIStatus state="running" label="Active" />}
+        />
+        <div className="mt-4 grid grid-cols-1 gap-2">
+          <div className="panel p-3 bg-background-elevated/50 border border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-teal-400" />
+              <span className="text-sm font-medium">ClinicalScribe</span>
+            </div>
+            <span className="text-xs text-foreground-subtle">SOAP</span>
           </div>
-          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-medium">
-            Active
-          </span>
-        </div>
-
-        <div className="space-y-2">
-          {patientAgents.map((agent) => (
-            <AgentCard key={agent.agentId} {...agent} />
-          ))}
-        </div>
-      </div>
-
-      {/* Recent Patient Decisions */}
-      <div className="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-4 space-y-3 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bot className="w-4 h-4 text-teal-400" />
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Patient AI Audit Decisions</h3>
+          <div className="panel p-3 bg-background-elevated/50 border border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-red-400" />
+              <span className="text-sm font-medium">PrescriptionSafe</span>
+            </div>
+            <span className="text-xs text-foreground-subtle">Safety</span>
           </div>
-          <span className="text-[10px] font-mono text-slate-400">Live</span>
+          <div className="panel p-3 bg-background-elevated/50 border border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-blue-400" />
+              <span className="text-sm font-medium">ReferralCoordinator</span>
+            </div>
+            <span className="text-xs text-foreground-subtle">Referral</span>
+          </div>
+          <div className="panel p-3 bg-background-elevated/50 border border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-orange-400" />
+              <span className="text-sm font-medium">RetentionRadar</span>
+            </div>
+            <span className="text-xs text-foreground-subtle">Follow-up</span>
+          </div>
         </div>
+      </Panel>
 
-        <div className="space-y-2">
-          <DecisionCard
-            id="dec_1"
-            agentName="ClinicalScribe"
-            decisionType="soap_generated"
-            decisionMade="Generated SOAP note & ICD-10 diagnoses for Type-2 Diabetes consult."
-            timeAgo="Today"
-            modelUsed="gemini-1.5-pro"
-            latencyMs={1450}
-          />
-          <DecisionCard
-            id="dec_2"
-            agentName="PrescriptionSafe"
-            decisionType="rx_audit_passed"
-            decisionMade="Audited prescription regimen: Metformin 500mg (0 Conflicts)."
-            timeAgo="Today"
-            modelUsed="gemini-1.5-flash"
-            latencyMs={290}
-          />
+      <Panel padding="md">
+        <SectionHeader icon={Bot} title="Patient AI Audit Decisions" subtitle="Live" />
+        <ActivityFeed items={decisions} className="mt-4" />
+      </Panel>
+
+      <Panel padding="md">
+        <div className="flex items-center gap-2 mb-3">
+          <Activity className="w-4 h-4 text-teal-400" />
+          <span className="text-sm font-semibold text-foreground">AI Health</span>
         </div>
-      </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-foreground-muted">Agents Active</span>
+            <span className="font-mono text-green-400">7/7</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-foreground-muted">Decisions Today</span>
+            <span className="font-mono text-foreground">24</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-foreground-muted">Avg Latency</span>
+            <span className="font-mono text-foreground">620ms</span>
+          </div>
+        </div>
+      </Panel>
     </aside>
   );
 };

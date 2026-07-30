@@ -46,9 +46,13 @@ async def init_db():
     """
     if settings.is_development:
         logger.info("Development environment: creating tables from ORM metadata...")
+        # Import models so Base.metadata contains all tables
+        import models.clinic
+        import models.billing
+        import models.consultation
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("PostgreSQL tables checked/created (development)")
+        logger.info("Database tables checked/created (development)")
     else:
         logger.info("Non-development environment: schema managed by Alembic migrations; skipping create_all.")
 

@@ -31,17 +31,35 @@ export function WalkInModal() {
     try {
       setLoading(true);
       setError(null);
-      await api.post("/appointments/walk-in", {
+      const apptRes = await api.post("/appointments/walk-in", {
         clinic_id: clinicId,
         patient_phone: phone,
         patient_name: name || undefined,
         complaint_summary: complaint || "Walk-in Consultation",
         consultation_type: consultType
       });
+
+      const appointmentId = apptRes.data.appointment_id;
+      const patientId = apptRes.data.patient_id;
+
+      const consRes = await api.post("/consultations/start", {
+        clinic_id: clinicId,
+        appointment_id: appointmentId
+      });
+
+      const newConsId = consRes.data.consultation_id;
+      const resetConsultation = useClinicStore.getState().resetConsultation;
+      const setActiveConsultation = useClinicStore.getState().setActiveConsultation;
+
+      resetConsultation();
+      setActiveConsultation(newConsId, patientId, appointmentId);
+
       setOpen(false);
       setPhone("");
       setName("");
       setComplaint("");
+
+      window.location.assign(`/consultation/${newConsId}?appointment_id=${appointmentId}`);
     } catch (err: any) {
       console.error("Failed to add walk-in:", err);
       setError("Could not add walk-in patient. Try again.");

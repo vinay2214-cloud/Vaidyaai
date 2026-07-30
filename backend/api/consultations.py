@@ -22,6 +22,11 @@ referral_coordinator_agent = ReferralCoordinatorAgent()
 
 # ─── Request Schemas ─────────────────────────────────────────────────────────
 
+class StartConsultationRequest(BaseModel):
+    clinic_id: str
+    appointment_id: str
+
+
 class TranscribeRequest(BaseModel):
     clinic_id: str
     consultation_id: str
@@ -57,6 +62,71 @@ class CreateReferralRequest(BaseModel):
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@router.post("/consultations/start", tags=["consultations"])
+async def start_consultation_endpoint(
+    req: StartConsultationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    POST /api/v1/consultations/start
+    Creates a new, isolated Firestore consultation document for the appointment.
+    Validates appointment belongs to clinic_id and extracts verified patient_id.
+    """
+    verify_clinic_access(req.clinic_id, current_user)
+
+    appointment = await get_document("appointments", req.appointment_id)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+
+    if appointment.get("clinic_id") != req.clinic_id:
+        raise HTTPException(status_code=403, detail="Access denied: appointment belongs to a different clinic")
+
+    patient_id = appointment.get("patient_id")
+    if not patient_id:
+        raise HTTPException(status_code=400, detail="Appointment is missing patient_id link")
+
+    # Check if a consultation already exists for this appointment
+    existing = await query_documents("consultations", [("clinic_id", "==", req.clinic_id), ("appointment_id", "==", req.appointment_id)])
+    if existing:
+        cons = existing[0]
+        return {
+            "consultation_id": cons["consultation_id"],
+            "patient_id": cons.get("patient_id", patient_id),
+            "appointment_id": req.appointment_id,
+            "status": cons.get("status", "draft")
+        }
+
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    new_cons_id = f"cons_{int(now_utc.timestamp())}"
+
+    cons_doc = {
+        "consultation_id": new_cons_id,
+        "clinic_id": req.clinic_id,
+        "appointment_id": req.appointment_id,
+        "patient_id": patient_id,
+        "status": "draft",
+        "transcript_raw": "",
+        "transcript_anonymised": "",
+        "soap_note": {"subjective": "", "objective": "", "assessment": "", "plan": ""},
+        "diagnoses": [],
+        "medications": [],
+        "investigations": [],
+        "referrals": [],
+        "followup_days": 5,
+        "created_at": now_utc,
+        "updated_at": now_utc
+    }
+    await set_document("consultations", new_cons_id, cons_doc)
+
+    return {
+        "consultation_id": new_cons_id,
+        "patient_id": patient_id,
+        "appointment_id": req.appointment_id,
+        "status": "draft"
+    }
+
 
 @router.post("/consultations/upload-chunk", tags=["consultations"])
 async def upload_audio_chunk(

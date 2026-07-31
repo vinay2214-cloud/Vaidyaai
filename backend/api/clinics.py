@@ -190,3 +190,62 @@ async def setup_new_clinic(
         "doctor_name": req.doctor_name,
         "status": "active"
     }
+
+
+class DevProvisionRequest(BaseModel):
+    uid: str
+    clinic_id: Optional[str] = "cln_e2e_test_clinic"
+    doctor_name: Optional[str] = "Dr. Ramesh"
+    clinic_name: Optional[str] = "Tirupati General Clinic"
+    role: Optional[str] = "doctor"
+
+
+@router.post("/clinics/dev-provision", tags=["clinics"])
+async def dev_provision_clinic_user(req: DevProvisionRequest):
+    """
+    POST /api/v1/clinics/dev-provision
+    Development-only endpoint for tenant auto-provisioning.
+    Provisions clinic_users/{uid} document and sets Firebase Custom Claims.
+    Strictly forbidden in production environments (returns HTTP 403).
+    """
+    from config import settings
+    if settings.is_production:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Development tenant provisioning is strictly disabled in production environments."
+        )
+
+    now_utc = datetime.now(timezone.utc)
+    user_mapping = {
+        "clinic_id": req.clinic_id,
+        "doctor_name": req.doctor_name,
+        "doctor_phone": "+919876543210",
+        "clinic_name": req.clinic_name,
+        "role": req.role,
+        "created_at": now_utc,
+        "is_dev_provisioned": True
+    }
+
+    try:
+        await set_document("clinic_users", req.uid, user_mapping)
+        logger.info(f"Dev Provisioning: Written clinic_users/{req.uid} for clinic '{req.clinic_id}'")
+    except Exception as e:
+        logger.warning(f"Dev Provisioning: Could not write Firestore document clinic_users/{req.uid}: {e}")
+
+    try:
+        firebase_auth.set_custom_user_claims(req.uid, {
+            "clinic_id": req.clinic_id,
+            "role": req.role
+        })
+        logger.info(f"Dev Provisioning: Set custom user claims for {req.uid}")
+    except Exception as e:
+        logger.debug(f"Dev Provisioning: Could not set custom claims for {req.uid}: {e}")
+
+    return {
+        "clinic_id": req.clinic_id,
+        "doctor_name": req.doctor_name,
+        "clinic_name": req.clinic_name,
+        "role": req.role,
+        "status": "provisioned"
+    }
+

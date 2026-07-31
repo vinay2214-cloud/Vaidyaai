@@ -51,6 +51,18 @@ async def seed_firestore():
         "created_at": datetime.now(timezone.utc)
     })
 
+    # 1b. User Clinic Mappings (dev_doctor_001 & doc_e2e_test_user)
+    user_mapping = {
+        "clinic_id": CLINIC_ID,
+        "doctor_name": "Dr. Ramesh H. Rao",
+        "doctor_phone": "+919876543210",
+        "clinic_name": "Arogya Wellness Family Practice",
+        "role": "doctor",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await set_document("clinic_users", "dev_doctor_001", user_mapping)
+    await set_document("clinic_users", "doc_e2e_test_user", user_mapping)
+
     # 2. Patients
     patients = [
         {

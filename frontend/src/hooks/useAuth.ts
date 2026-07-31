@@ -8,9 +8,9 @@ import {
   clearSessionCookie,
   isDevAuthBypassEnabled,
   DEV_DOCTOR_USER,
-  DEV_CLINIC_DATA,
-  SESSION_COOKIE
+  DEV_CLINIC_DATA
 } from "../lib/auth";
+import { DevBootstrapService } from "../services/devBootstrap";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -20,35 +20,40 @@ export function useAuth() {
   const clearClinic = useClinicStore((state) => state.clearClinic);
 
   useEffect(() => {
-    // Development-only Auth Bypass Mode
+    // 1. Development Auth Bypass Mode (NEXT_PUBLIC_DEV_AUTH_BYPASS === true)
     if (isDevAuthBypassEnabled()) {
-      const hasCookie = typeof document !== "undefined" && document.cookie.includes(SESSION_COOKIE);
-      if (hasCookie) {
-        setUser(DEV_DOCTOR_USER as unknown as User);
-        setClinic(
-          DEV_CLINIC_DATA.clinicId,
-          DEV_CLINIC_DATA.doctorName,
-          DEV_CLINIC_DATA.clinicName,
-          DEV_CLINIC_DATA.role
-        );
-        setError(null);
-      } else {
-        setUser(null);
-        clearClinic();
-      }
-      setLoading(false);
+      setUser(DEV_DOCTOR_USER as unknown as User);
+      DevBootstrapService.ensureClinicMapping(DEV_DOCTOR_USER.uid)
+        .then((mapping) => {
+          setClinic(mapping.clinic_id, mapping.doctor_name, mapping.clinic_name, mapping.role);
+          setSessionCookie();
+          setError(null);
+          setLoading(false);
+        })
+        .catch(() => {
+          setClinic(
+            DEV_CLINIC_DATA.clinicId,
+            DEV_CLINIC_DATA.doctorName,
+            DEV_CLINIC_DATA.clinicName,
+            DEV_CLINIC_DATA.role
+          );
+          setSessionCookie();
+          setError(null);
+          setLoading(false);
+        });
       return;
     }
 
-    // Production Firebase Auth State Listener
+    // 2. Production / Real Firebase Auth State Listener
     const unsubscribe = onAuthStateChanged(firebaseAuth, async (currentUser) => {
       setUser(currentUser);
       setError(null);
+
       if (currentUser) {
         try {
           // Fetch clinic mapping from clinic_users/{uid}
           const userDoc = await getDoc(doc(firestore, "clinic_users", currentUser.uid));
-          if (userDoc.exists() && userDoc.data().clinic_id) {
+          if (userDoc.exists() && userDoc.data()?.clinic_id) {
             const data = userDoc.data();
             setClinic(
               data.clinic_id,
@@ -57,17 +62,32 @@ export function useAuth() {
               data.role || "doctor"
             );
             setSessionCookie();
+            setError(null);
+          } else if (isDevAuthBypassEnabled()) {
+            // Feature flag enabled: Auto-provision Firestore document via DevBootstrapService
+            const mapping = await DevBootstrapService.ensureClinicMapping(currentUser.uid);
+            setClinic(mapping.clinic_id, mapping.doctor_name, mapping.clinic_name, mapping.role);
+            setSessionCookie();
+            setError(null);
           } else {
-            // No clinic mapping found
+            // Production behavior (NEXT_PUBLIC_DEV_AUTH_BYPASS=false):
+            // Un-onboarded users are directed to complete clinic setup
             clearClinic();
             clearSessionCookie();
             setError("no_clinic");
           }
         } catch (e) {
           console.warn("Could not fetch user clinic mapping:", e);
-          clearClinic();
-          clearSessionCookie();
-          setError("mapping_error");
+          if (isDevAuthBypassEnabled()) {
+            const mapping = await DevBootstrapService.ensureClinicMapping(currentUser.uid);
+            setClinic(mapping.clinic_id, mapping.doctor_name, mapping.clinic_name, mapping.role);
+            setSessionCookie();
+            setError(null);
+          } else {
+            clearClinic();
+            clearSessionCookie();
+            setError("mapping_error");
+          }
         }
       } else {
         clearClinic();

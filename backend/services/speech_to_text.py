@@ -52,8 +52,11 @@ class SpeechToTextService:
             try:
                 subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return True
+            except FileNotFoundError:
+                logger.info("FFmpeg binary not found in system PATH; using audio fallback.")
+                return False
             except Exception as e:
-                logger.error(f"FFmpeg single chunk transcode failed: {e}")
+                logger.warning(f"FFmpeg single chunk transcode failed: {e}")
                 return False
 
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:

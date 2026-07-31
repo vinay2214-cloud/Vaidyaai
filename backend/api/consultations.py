@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, verify_clinic_access
-from database.firestore import get_document, query_documents
+from database.firestore import get_document, query_documents, set_document, update_document
 from agents.clinical_scribe import ClinicalScribeAgent
 from agents.prescription_safe import PrescriptionSafeAgent
 from agents.referral_coordinator import ReferralCoordinatorAgent
 from services.pdf_generator import generate_prescription_pdf
+from event_bus import ClinicalEvent, create_event, get_event_bus
 
 logger = logging.getLogger("vaidyaai.api.consultations")
 router = APIRouter()
@@ -21,6 +22,11 @@ referral_coordinator_agent = ReferralCoordinatorAgent()
 
 
 # ─── Request Schemas ─────────────────────────────────────────────────────────
+
+class StartConsultationRequest(BaseModel):
+    clinic_id: str
+    appointment_id: str
+
 
 class TranscribeRequest(BaseModel):
     clinic_id: str
@@ -57,6 +63,83 @@ class CreateReferralRequest(BaseModel):
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@router.post("/consultations/start", tags=["consultations"])
+async def start_consultation_endpoint(
+    req: StartConsultationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    POST /api/v1/consultations/start
+    Creates a new, isolated Firestore consultation document for the appointment.
+    Validates appointment belongs to clinic_id and extracts verified patient_id.
+    """
+    verify_clinic_access(req.clinic_id, current_user)
+
+    appointment = await get_document("appointments", req.appointment_id)
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+
+    if appointment.get("clinic_id") != req.clinic_id:
+        raise HTTPException(status_code=403, detail="Access denied: appointment belongs to a different clinic")
+
+    patient_id = appointment.get("patient_id")
+    if not patient_id:
+        raise HTTPException(status_code=400, detail="Appointment is missing patient_id link")
+
+    # Check if a consultation already exists for this appointment
+    existing = await query_documents("consultations", [("clinic_id", "==", req.clinic_id), ("appointment_id", "==", req.appointment_id)])
+    if existing:
+        cons = existing[0]
+        return {
+            "consultation_id": cons["consultation_id"],
+            "patient_id": cons.get("patient_id", patient_id),
+            "appointment_id": req.appointment_id,
+            "status": cons.get("status", "draft")
+        }
+
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    new_cons_id = f"cons_{int(now_utc.timestamp())}"
+
+    cons_doc = {
+        "consultation_id": new_cons_id,
+        "clinic_id": req.clinic_id,
+        "appointment_id": req.appointment_id,
+        "patient_id": patient_id,
+        "status": "draft",
+        "transcript_raw": "",
+        "transcript_anonymised": "",
+        "soap_note": {"subjective": "", "objective": "", "assessment": "", "plan": ""},
+        "diagnoses": [],
+        "medications": [],
+        "investigations": [],
+        "referrals": [],
+        "followup_days": 5,
+        "created_at": now_utc,
+        "updated_at": now_utc
+    }
+    await set_document("consultations", new_cons_id, cons_doc)
+
+    # Emit CONSULTATION_STARTED event AFTER database commit
+    bus = get_event_bus()
+    await bus.emit(create_event(
+        ClinicalEvent.CONSULTATION_STARTED,
+        clinic_id=req.clinic_id,
+        patient_id=patient_id,
+        visit_id=req.appointment_id,
+        consultation_id=new_cons_id,
+        doctor_id=current_user.get("uid"),
+        trigger="api:start_consultation",
+    ))
+
+    return {
+        "consultation_id": new_cons_id,
+        "patient_id": patient_id,
+        "appointment_id": req.appointment_id,
+        "status": "draft"
+    }
+
 
 @router.post("/consultations/upload-chunk", tags=["consultations"])
 async def upload_audio_chunk(
@@ -103,6 +186,23 @@ async def transcribe_consultation(
         vitals=req.vitals or "",
         language_code=req.language_code or "te-IN"
     )
+
+    # Emit SOAP_GENERATED event AFTER database commit
+    bus = get_event_bus()
+    await bus.emit(create_event(
+        ClinicalEvent.SOAP_GENERATED,
+        clinic_id=req.clinic_id,
+        visit_id=req.appointment_id,
+        consultation_id=req.consultation_id,
+        doctor_id=current_user.get("uid"),
+        trigger="api:transcribe",
+        payload={
+            "medications": result.get("medications", []),
+            "diagnoses": result.get("diagnoses", []),
+            "referrals": result.get("referrals", [])
+        }
+    ))
+
     return result
 
 
@@ -162,12 +262,25 @@ async def create_consultation_referral(
     Invokes Agent 7 (ReferralCoordinator) to generate formal referral letter and notify patient via WhatsApp.
     """
     verify_clinic_access(req.clinic_id, current_user)
-    return await referral_coordinator_agent.generate_and_track_referral(
+    result = await referral_coordinator_agent.generate_and_track_referral(
         consultation_id=id,
         clinic_id=req.clinic_id,
         patient_phone=req.patient_phone,
         speciality=req.speciality
     )
+
+    # Emit REFERRAL_CREATED event AFTER database commit
+    bus = get_event_bus()
+    await bus.emit(create_event(
+        ClinicalEvent.REFERRAL_CREATED,
+        clinic_id=req.clinic_id,
+        consultation_id=id,
+        doctor_id=current_user.get("uid"),
+        trigger="api:create_referral",
+        payload={"speciality": req.speciality, "patient_phone_masked": req.patient_phone[-4:] if req.patient_phone else "XXXX"}
+    ))
+
+    return result
 
 
 @router.get("/referrals", tags=["consultations"])
@@ -198,6 +311,27 @@ async def approve_consultation(
         edited_medications=req.edited_medications,
         consultation_type=req.consultation_type or "new"
     )
+
+    # Emit PRESCRIPTION_APPROVED event AFTER database commit
+    bus = get_event_bus()
+    # Get consultation to extract appointment/patient phone
+    cons = await get_document("consultations", id) or {}
+    app = await get_document("appointments", cons.get("appointment_id", "")) if cons.get("appointment_id") else None
+
+    await bus.emit(create_event(
+        ClinicalEvent.PRESCRIPTION_APPROVED,
+        clinic_id=req.clinic_id,
+        visit_id=cons.get("appointment_id"),
+        consultation_id=id,
+        patient_id=cons.get("patient_id"),
+        doctor_id=current_user.get("uid"),
+        trigger="api:approve_consultation",
+        payload={
+            "patient_phone": app.get("patient_phone_masked") if app else None,
+            "consultation_type": req.consultation_type or "new"
+        }
+    ))
+
     return result
 
 

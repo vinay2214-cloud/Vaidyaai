@@ -85,3 +85,25 @@ def test_clinic_access_denies_cross_tenant():
 def test_clinic_access_allows_matching_tenant():
     user = {"uid": "u1", "clinic_id": "cln_123"}
     assert verify_clinic_access("cln_123", current_user=user) is user
+
+
+def test_dev_auth_token_accepted_in_development(monkeypatch):
+    from config import settings
+    from api.auth import get_current_user
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    user = _run(get_current_user(authorization="Bearer dev_mock_id_token"))
+    assert user["uid"] == "dev_doctor_001"
+    assert user["clinic_id"] == "cln_e2e_test_clinic"
+    assert user["role"] == "doctor"
+
+
+def test_dev_auth_token_rejected_in_production(monkeypatch):
+    from config import settings
+    from api.auth import get_current_user
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    with pytest.raises(HTTPException) as exc:
+        _run(get_current_user(authorization="Bearer dev_mock_id_token"))
+    assert exc.value.status_code == 401
+

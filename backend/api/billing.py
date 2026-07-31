@@ -164,7 +164,7 @@ async def create_invoice_endpoint(
     Triggered when doctor approves consultation SOAP note.
     """
     verify_clinic_access(req.clinic_id, current_user)
-    return await billing_agent.on_consultation_close(
+    result = await billing_agent.on_consultation_close(
         consultation_id=req.consultation_id,
         clinic_id=req.clinic_id,
         patient_phone=req.patient_phone,
@@ -172,6 +172,20 @@ async def create_invoice_endpoint(
         custom_amount_paise=req.custom_amount_paise,
         fee_breakdown=req.fee_breakdown
     )
+
+    # Emit INVOICE_GENERATED event AFTER database commit
+    from event_bus import ClinicalEvent, create_event, get_event_bus
+    bus = get_event_bus()
+    await bus.emit(create_event(
+        ClinicalEvent.INVOICE_GENERATED,
+        clinic_id=req.clinic_id,
+        consultation_id=req.consultation_id,
+        doctor_id=current_user.get("uid"),
+        trigger="api:create_invoice",
+        payload={"invoice_number": result.get("invoice_number"), "amount_rupees": result.get("amount_rupees")}
+    ))
+
+    return result
 
 
 @router.post("/billing/mark-cash", tags=["billing"])
@@ -184,7 +198,20 @@ async def mark_invoice_cash(
     Marks an invoice as paid via Cash.
     """
     verify_clinic_access(req.clinic_id, current_user)
-    return await billing_agent.mark_as_cash(req.invoice_id, req.clinic_id)
+    result = await billing_agent.mark_as_cash(req.invoice_id, req.clinic_id)
+
+    # Emit PAYMENT_COMPLETED event AFTER database commit
+    from event_bus import ClinicalEvent, create_event, get_event_bus
+    bus = get_event_bus()
+    await bus.emit(create_event(
+        ClinicalEvent.PAYMENT_COMPLETED,
+        clinic_id=req.clinic_id,
+        doctor_id=current_user.get("uid"),
+        trigger="api:mark_cash",
+        payload={"payment_method": "cash", "invoice_id": req.invoice_id}
+    ))
+
+    return result
 
 
 @router.post("/billing/waive", tags=["billing"])

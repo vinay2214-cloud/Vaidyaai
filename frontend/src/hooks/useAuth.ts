@@ -3,7 +3,14 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { firebaseAuth, firestore } from "../lib/firebase";
 import { useClinicStore } from "../store/clinicStore";
-import { setSessionCookie, clearSessionCookie } from "../lib/auth";
+import {
+  setSessionCookie,
+  clearSessionCookie,
+  isDevAuthBypassEnabled,
+  DEV_DOCTOR_USER,
+  DEV_CLINIC_DATA,
+  SESSION_COOKIE
+} from "../lib/auth";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -13,6 +20,27 @@ export function useAuth() {
   const clearClinic = useClinicStore((state) => state.clearClinic);
 
   useEffect(() => {
+    // Development-only Auth Bypass Mode
+    if (isDevAuthBypassEnabled()) {
+      const hasCookie = typeof document !== "undefined" && document.cookie.includes(SESSION_COOKIE);
+      if (hasCookie) {
+        setUser(DEV_DOCTOR_USER as unknown as User);
+        setClinic(
+          DEV_CLINIC_DATA.clinicId,
+          DEV_CLINIC_DATA.doctorName,
+          DEV_CLINIC_DATA.clinicName,
+          DEV_CLINIC_DATA.role
+        );
+        setError(null);
+      } else {
+        setUser(null);
+        clearClinic();
+      }
+      setLoading(false);
+      return;
+    }
+
+    // Production Firebase Auth State Listener
     const unsubscribe = onAuthStateChanged(firebaseAuth, async (currentUser) => {
       setUser(currentUser);
       setError(null);
@@ -30,7 +58,7 @@ export function useAuth() {
             );
             setSessionCookie();
           } else {
-            // No clinic mapping: do NOT fall back to a shared demo tenant.
+            // No clinic mapping found
             clearClinic();
             clearSessionCookie();
             setError("no_clinic");

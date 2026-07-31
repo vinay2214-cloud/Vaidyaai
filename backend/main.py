@@ -14,6 +14,7 @@ from api.patients import router as patients_router
 from api.clinics import router as clinics_router
 from api.analytics import router as analytics_router
 from api.internal import router as internal_router
+from api.agent_health import router as agent_health_router
 
 logger = logging.getLogger("vaidyaai.main")
 
@@ -90,6 +91,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         _startup_checks["firebase_admin"] = f"unconfigured ({e})"
 
+    # 8. Event Bus & Workflow Orchestrator
+    try:
+        from workflow_orchestrator import WorkflowOrchestrator
+        orchestrator = WorkflowOrchestrator()
+        orchestrator.register_all()
+        _startup_checks["event_bus"] = "online"
+    except Exception as e:
+        logger.warning(f"Workflow Orchestrator initialization warning: {e}")
+        _startup_checks["event_bus"] = f"warning ({e})"
+
     logger.info(f"VaidyaAI Startup Validation Complete: {_startup_checks}")
     logger.info("VaidyaAI Agents — all 7 autonomous agents operational")
     yield
@@ -110,8 +121,21 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition"],
+    expose_headers=["Content-Disposition", "X-Correlation-ID"],
 )
+
+
+@app.middleware("http")
+async def security_and_tracing_middleware(request: Request, call_next):
+    import uuid
+    correlation_id = request.headers.get("X-Correlation-ID") or f"corr_{uuid.uuid4().hex[:12]}"
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 
 @app.exception_handler(Exception)
@@ -132,6 +156,7 @@ app.include_router(patients_router, prefix="/api/v1", tags=["patients"])
 app.include_router(clinics_router, prefix="/api/v1", tags=["clinics"])
 app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
 app.include_router(internal_router, prefix="/internal", tags=["internal"])
+app.include_router(agent_health_router, prefix="/api/v1", tags=["agents"])
 
 
 @app.get("/livez", tags=["health"])
@@ -180,7 +205,18 @@ async def health():
             "firebase": _startup_checks.get("firebase_admin", "unknown"),
             "secret_manager": _startup_checks.get("secret_manager", "unknown"),
             "cloud_logging": _startup_checks.get("cloud_logging", "unknown"),
-            "gemini": gemini_svc.get_status()
+            "event_bus": _startup_checks.get("event_bus", "online"),
+            "gemini": gemini_svc.get_status(),
+            "razorpay": "active" if settings.RAZORPAY_KEY_ID != "rzp_live_placeholder" else "mock_dev_mode",
+            "whatsapp": "active" if settings.WHATSAPP_PHONE_ID != "placeholder_phone_id" else "mock_dev_mode"
+        },
+        "feature_flags": {
+            "ai_autonomous": settings.FEATURE_AI_AUTONOMOUS,
+            "whatsapp": settings.FEATURE_WHATSAPP,
+            "voice": settings.FEATURE_VOICE,
+            "realtime_events": settings.FEATURE_REALTIME_EVENTS,
+            "analytics": settings.FEATURE_ANALYTICS,
+            "demo_mode": settings.FEATURE_DEMO_MODE
         },
         "agents": [
             "appointment_flow",

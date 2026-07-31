@@ -1,30 +1,73 @@
 "use client";
 
-import React, { useState, useRef } from "react";
-import { Mic, Square, Loader2, Sparkles, AlertCircle } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Mic, Square, Loader2, Sparkles, Trash2 } from "lucide-react";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
+import { useToast } from "@/components/design-system";
 
 export function ConsultationRecorder({
   consultationId,
   appointmentId,
-  onTranscribed
+  onTranscribed,
+  onClear
 }: {
   consultationId: string;
   appointmentId: string;
   onTranscribed: (data: any) => void;
+  onClear?: () => void;
 }) {
   const clinicId = useClinicStore((state) => state.clinicId);
+  const { toast } = useToast();
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [chunkPaths, setChunkPaths] = useState<string[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunkIndexRef = useRef(0);
 
+  // Cleanup old session on consultationId change
+  useEffect(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      try {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
+    }
+    mediaRecorderRef.current = null;
+    chunkIndexRef.current = 0;
+    setChunkPaths([]);
+    setRecording(false);
+    setTranscribing(false);
+  }, [consultationId]);
+
+  const handleClear = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      try {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
+    }
+    mediaRecorderRef.current = null;
+    chunkIndexRef.current = 0;
+    setChunkPaths([]);
+    setRecording(false);
+    setTranscribing(false);
+    if (onClear) onClear();
+  };
+
+  const getSupportedMimeType = (): string => {
+    if (typeof MediaRecorder === "undefined") return "audio/webm";
+    if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) return "audio/webm;codecs=opus";
+    if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+    if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+    return "audio/webm";
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const mimeType = getSupportedMimeType();
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
       chunkIndexRef.current = 0;
       setChunkPaths([]);
@@ -32,7 +75,7 @@ export function ConsultationRecorder({
       mediaRecorder.ondataavailable = async (e) => {
         if (e.data.size > 0 && clinicId) {
           const formData = new FormData();
-          const blob = new Blob([e.data], { type: "audio/webm" });
+          const blob = new Blob([e.data], { type: mimeType });
           formData.append("file", blob, `chunk_${chunkIndexRef.current}.webm`);
 
           try {
@@ -56,7 +99,7 @@ export function ConsultationRecorder({
       setRecording(true);
     } catch (err) {
       console.error("Microphone access error:", err);
-      alert("Microphone permission required for ambient scribe.");
+      toast("Microphone permission required for ambient scribe.", "warning");
     }
   };
 
@@ -67,7 +110,6 @@ export function ConsultationRecorder({
       setRecording(false);
       setTranscribing(true);
 
-      // Give 1s for last chunk upload to settle
       setTimeout(async () => {
         try {
           const res = await api.post("/consultations/transcribe", {
@@ -79,7 +121,7 @@ export function ConsultationRecorder({
           onTranscribed(res.data);
         } catch (e) {
           console.error("Transcription error:", e);
-          alert("Transcription failed. Try again.");
+          toast("Transcription failed. Try again.", "error");
         } finally {
           setTranscribing(false);
         }
@@ -88,26 +130,35 @@ export function ConsultationRecorder({
   };
 
   return (
-    <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-5 shadow-lg flex flex-col items-center justify-center gap-4">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-teal-400">
-        <Sparkles className="w-4 h-4" /> Agent 2: ClinicalScribe (Ambient Scribe)
+    <div className="flex flex-col items-center justify-center gap-4">
+      <div className="w-full flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-teal-400">
+          <Sparkles className="w-4 h-4" /> Agent 2: ClinicalScribe
+        </div>
+        <button
+          onClick={handleClear}
+          title="Clear Session State"
+          className="btn-ghost text-xs"
+        >
+          <Trash2 className="w-3.5 h-3.5 text-red-400" /> Clear
+        </button>
       </div>
 
       {!recording && !transcribing ? (
         <button
           onClick={startRecording}
-          className="w-full py-4 bg-teal-500 hover:bg-teal-600 text-slate-950 font-bold rounded-2xl flex items-center justify-center gap-3 transition-colors shadow-lg shadow-teal-500/20 text-base"
+          className="w-full py-4 bg-teal-500 hover:bg-teal-400 text-background font-bold rounded-2xl flex items-center justify-center gap-3 transition-all duration-250 shadow-glow-teal text-base focus-ring"
         >
           <Mic className="w-6 h-6 animate-pulse" /> Start Ambient Recording
         </button>
       ) : recording ? (
         <div className="w-full flex flex-col items-center gap-3">
-          <div className="flex items-center gap-2 text-rose-400 font-mono text-sm animate-pulse">
-            <span className="w-3 h-3 bg-rose-500 rounded-full"></span> Live Audio Ambient Recording Active ({chunkPaths.length} Chunks Uploaded)
+          <div className="flex items-center gap-2 text-red-400 font-mono text-sm animate-pulse">
+            <span className="w-3 h-3 bg-red-500 rounded-full"></span> Live Audio Ambient Recording Active ({chunkPaths.length} Chunks Uploaded)
           </div>
           <button
             onClick={stopRecordingAndTranscribe}
-            className="w-full py-3.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-colors text-sm"
+            className="w-full py-3.5 bg-red-500 hover:bg-red-400 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all duration-250 text-sm focus-ring"
           >
             <Square className="w-5 h-5 fill-current" /> Stop & Generate SOAP Note
           </button>
@@ -115,11 +166,11 @@ export function ConsultationRecorder({
       ) : (
         <div className="flex flex-col items-center gap-3 py-4 text-teal-400 font-medium">
           <Loader2 className="w-8 h-8 animate-spin" />
-          <p className="text-sm">Agent 2 processing audio, running Speech-to-Text & Gemini 1.5 Pro SOAP generation...</p>
+          <p className="text-sm">Processing audio, running Speech-to-Text & Gemini 1.5 Pro SOAP generation...</p>
         </div>
       )}
 
-      <p className="text-xs text-slate-400 text-center max-w-sm">
+      <p className="text-xs text-foreground-subtle text-center max-w-sm">
         Listens to Doctor-Patient conversation in Telugu, Hindi, or English, separates speakers automatically, and drafts SOAP notes.
       </p>
     </div>

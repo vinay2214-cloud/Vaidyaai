@@ -32,6 +32,16 @@ class PatientCreateRequest(BaseModel):
     blood_group: Optional[str] = None
 
 
+class PatientRegisterRequest(BaseModel):
+    clinic_id: str
+    phone: str
+    name: str
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    complaint_summary: Optional[str] = "New Patient Consultation"
+
+
+
 @router.get("/patients", tags=["patients"])
 async def list_patients(
     clinic_id: str = Query(...),
@@ -170,3 +180,74 @@ async def get_patient_clinical_timeline(
         "consultations": consultations,
         "referrals": referrals
     }
+
+
+@router.post("/patients/register", tags=["patients"])
+async def register_patient_endpoint(
+    req: PatientRegisterRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    POST /api/v1/patients/register
+    Creates a new patient profile AND creates a same-day appointment for immediate consultation.
+    Returns: {"patient_id": str, "appointment_id": str, "consultation_id": None, "patient_name": str, "success": True}
+    """
+    verify_clinic_access(req.clinic_id, current_user)
+
+    formatted_phone = normalize_phone(req.phone)
+    masked_phone_str = mask_phone(formatted_phone)
+    now_utc = datetime.now(timezone.utc)
+    patient_id = f"pat_{int(now_utc.timestamp())}"
+
+    patient_doc = {
+        "patient_id": patient_id,
+        "clinic_id": req.clinic_id,
+        "name": req.name,
+        "phone": formatted_phone,
+        "patient_phone_masked": masked_phone_str,
+        "age": req.age,
+        "gender": req.gender,
+        "allergies": [],
+        "chronic_conditions": [],
+        "visit_count": 1,
+        "consent_given": True,
+        "consent_at": now_utc,
+        "opted_out": False,
+        "is_active": True,
+        "created_at": now_utc,
+        "updated_at": now_utc
+    }
+    await set_document("patients", patient_id, patient_doc)
+
+    today_date = now_utc.strftime("%Y-%m-%d")
+    existing_appts = await query_documents("appointments", [("clinic_id", "==", req.clinic_id), ("slot_date", "==", today_date)])
+    queue_number = len(existing_appts) + 1
+
+    app_id = f"app_reg_{int(now_utc.timestamp())}"
+    appointment_data = {
+        "appointment_id": app_id,
+        "clinic_id": req.clinic_id,
+        "patient_id": patient_id,
+        "patient_name": req.name,
+        "patient_phone_masked": masked_phone_str,
+        "slot_time": now_utc,
+        "slot_date": today_date,
+        "slot_time_str": now_utc.strftime("%I:%M %p"),
+        "duration_minutes": 15,
+        "complaint_summary": req.complaint_summary or "New Patient Consultation",
+        "status": "arrived",
+        "consultation_type": "new",
+        "booked_by": "registration",
+        "queue_number": queue_number,
+        "created_at": now_utc
+    }
+    await set_document("appointments", app_id, appointment_data)
+
+    return {
+        "patient_id": patient_id,
+        "appointment_id": app_id,
+        "consultation_id": None,
+        "patient_name": req.name,
+        "success": True
+    }
+

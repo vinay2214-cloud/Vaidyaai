@@ -88,9 +88,12 @@ class ReferralCoordinatorAgent(BaseAgent):
 
                 referral_pg = ReferralTracking(
                     clinic_id=clinic_pg_id,
-                    speciality=target_speciality,
+                    patient_phone_masked=mask_phone(patient_phone),
+                    consultation_firestore_id=consultation_id,
+                    referral_type="specialist",
+                    description=f"{target_speciality}: {referral_letter[:200]}",
                     urgency=urgency,
-                    referral_notes=referral_letter,
+                    suggested_provider=target_speciality,
                     status="pending",
                     created_at=now_utc
                 )

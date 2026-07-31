@@ -4,7 +4,8 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase";
-import { setSessionCookie } from "@/lib/auth";
+import { setSessionCookie, isDevAuthBypassEnabled, DEV_CLINIC_DATA } from "@/lib/auth";
+import { useClinicStore } from "@/store/clinicStore";
 import { Activity, Phone, ArrowRight, ShieldCheck } from "lucide-react";
 
 export default function LoginPage() {
@@ -15,6 +16,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const setClinic = useClinicStore((state) => state.setClinic);
 
   const setupRecaptcha = () => {
     if (!(window as any).recaptchaVerifier) {
@@ -34,6 +36,24 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
+    if (isDevAuthBypassEnabled()) {
+      console.info("[VaidyaAI Dev Auth] Executing development authentication bypass...");
+      setClinic(
+        DEV_CLINIC_DATA.clinicId,
+        DEV_CLINIC_DATA.doctorName,
+        DEV_CLINIC_DATA.clinicName,
+        DEV_CLINIC_DATA.role
+      );
+      setSessionCookie();
+      setLoading(false);
+      if (typeof window !== "undefined") {
+        window.location.assign("/");
+      } else {
+        router.push("/");
+      }
+      return;
+    }
+
     try {
       setupRecaptcha();
       const appVerifier = (window as any).recaptchaVerifier;
@@ -44,6 +64,12 @@ export default function LoginPage() {
       setStep("otp");
     } catch (err: any) {
       console.error("SMS send error:", err);
+      if ((window as any).recaptchaVerifier) {
+        try {
+          (window as any).recaptchaVerifier.clear();
+        } catch (e) {}
+        (window as any).recaptchaVerifier = null;
+      }
       setError("Could not send the verification code. Please check the number and try again.");
     } finally {
       setLoading(false);
@@ -63,7 +89,11 @@ export default function LoginPage() {
       }
       await confirmationResult.confirm(otp);
       setSessionCookie();
-      router.push("/");
+      if (typeof window !== "undefined") {
+        window.location.assign("/");
+      } else {
+        router.push("/");
+      }
     } catch (err: any) {
       console.error("OTP verification error:", err);
       setError("Invalid or expired verification code. Please try again.");
@@ -119,7 +149,7 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full py-3.5 bg-teal-500 hover:bg-teal-600 text-slate-950 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
             >
-              {loading ? "Sending OTP..." : <>Get Verification Code <ArrowRight className="w-4 h-4" /></>}
+              {loading ? "Authenticating..." : <>Get Verification Code <ArrowRight className="w-4 h-4" /></>}
             </button>
           </form>
         ) : (

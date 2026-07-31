@@ -55,11 +55,19 @@ class ClinicalScribeAgent(BaseAgent):
             model="gemini-1.5-pro"
         )
 
+        # Retrieve patient_id explicitly from appointment
+        patient_id = None
+        if appointment_id:
+            appt_doc = await get_document("appointments", appointment_id)
+            if appt_doc:
+                patient_id = appt_doc.get("patient_id")
+
         now_utc = datetime.now(timezone.utc)
         consultation_doc = {
             "consultation_id": consultation_id,
             "clinic_id": clinic_id,
             "appointment_id": appointment_id,
+            "patient_id": patient_id,
             "transcript_raw": raw_transcript,
             "transcript_anonymised": anonymised_transcript,
             "soap_note": {

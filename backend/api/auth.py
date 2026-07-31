@@ -29,6 +29,17 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
         )
     
     token = authorization.replace("Bearer ", "").strip()
+
+    # Development-only authentication path (STRICTLY disabled when ENVIRONMENT=production)
+    if settings.is_development and token in ("dev_mock_id_token", "dev_token", "dev_mock_token"):
+        logger.info("Development authentication token recognized. Returning dev doctor context.")
+        return {
+            "uid": "dev_doctor_001",
+            "clinic_id": "cln_e2e_test_clinic",
+            "role": "doctor",
+            "phone": "+919876543210"
+        }
+
     try:
         # Non-blocking execution of synchronous network call
         decoded = await asyncio.to_thread(firebase_auth.verify_id_token, token)

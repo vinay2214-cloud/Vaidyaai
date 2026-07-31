@@ -33,9 +33,9 @@ export default function PatientIntelligencePage() {
       const res = await api.get(`/patients?clinic_id=${clinicId}`);
       
       const enriched: PatientData[] = (res.data || []).map((p: any, idx: number) => ({
-        patient_id: p.patient_id || `pat_${idx}`,
+        patient_id: p.patient_id || p.id || `pat_${idx}`,
         name: p.name || `Patient ${idx + 1}`,
-        patient_phone_masked: p.patient_phone_masked || "+91XXXXXX3210",
+        patient_phone_masked: p.patient_phone_masked || p.phone_masked || "+91XXXXXX3210",
         age: p.age || 30 + (idx % 25),
         gender: p.gender || (idx % 2 === 0 ? "M" : "F"),
         city: p.city || "Mumbai",

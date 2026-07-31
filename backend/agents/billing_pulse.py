@@ -33,11 +33,10 @@ class BillingPulseAgent(BaseAgent):
     async def _generate_invoice_number(self, db: AsyncSession) -> str:
         """Generates sequential VDY-YYYYMMDD-XXXX invoice number."""
         today_str = get_today_ist_date_str().replace("-", "")
+        today_d = date.today()
+        start_of_today = datetime.combine(today_d, datetime.min.time()).replace(tzinfo=timezone.utc)
         
-        # Count existing invoices created today
-        query = select(func.count(Invoice.id)).where(
-            func.to_char(Invoice.created_at, 'YYYYMMDD') == today_str
-        )
+        query = select(func.count(Invoice.id)).where(Invoice.created_at >= start_of_today)
         res = await db.execute(query)
         count = res.scalar() or 0
         seq = count + 1001
@@ -84,10 +83,21 @@ class BillingPulseAgent(BaseAgent):
             amount_paise = max(0, base + lab + imaging + procedure + medicine + tax - discount)
 
         async with AsyncSessionFactory() as db:
-            # Look up PostgreSQL clinic record
+            # Look up PostgreSQL clinic record (auto-create if missing)
             res = await db.execute(select(Clinic).where(Clinic.firebase_clinic_id == clinic_id))
             clinic_obj = res.scalar_one_or_none()
-            pg_clinic_id = clinic_obj.id if clinic_obj else None
+            if not clinic_obj:
+                clinic_obj = Clinic(
+                    firebase_clinic_id=clinic_id,
+                    name="VaidyaAI Test Clinic",
+                    doctor_name="Dr. Vinay Sharma",
+                    phone="+919876543210",
+                    whatsapp_phone_id="123456789"
+                )
+                db.add(clinic_obj)
+                await db.commit()
+                await db.refresh(clinic_obj)
+            pg_clinic_id = clinic_obj.id
 
             # Generate sequential invoice number
             invoice_num = await self._generate_invoice_number(db)
@@ -172,6 +182,8 @@ class BillingPulseAgent(BaseAgent):
                 "invoice_number": invoice_num,
                 "amount_paise": amount_paise,
                 "amount_rupees": amount_rupees,
+                "payment_link_id": payment_link_id,
+                "razorpay_payment_link_id": payment_link_id,
                 "payment_link_url": payment_link_url,
                 "status": "pending"
             }
@@ -233,8 +245,13 @@ class BillingPulseAgent(BaseAgent):
 
     async def mark_as_cash(self, invoice_id: str, clinic_id: str) -> Dict[str, Any]:
         """Allows doctor to manually mark an invoice as paid via Cash in dashboard."""
+        import uuid
         async with AsyncSessionFactory() as db:
-            res = await db.execute(select(Invoice).where(Invoice.id == invoice_id))
+            try:
+                target_id = uuid.UUID(invoice_id) if isinstance(invoice_id, str) else invoice_id
+                res = await db.execute(select(Invoice).where(Invoice.id == target_id))
+            except (ValueError, AttributeError):
+                res = await db.execute(select(Invoice).where(Invoice.invoice_number == invoice_id))
             invoice = res.scalar_one_or_none()
             if not invoice:
                 return {"error": "Invoice not found"}
@@ -331,10 +348,12 @@ class BillingPulseAgent(BaseAgent):
             if not clinic_obj:
                 return {"error": "Clinic not found"}
 
+            today_d = date.today()
+            start_of_today = datetime.combine(today_d, datetime.min.time()).replace(tzinfo=timezone.utc)
             invoices_res = await db.execute(
                 select(Invoice).where(
                     Invoice.clinic_id == clinic_obj.id,
-                    func.to_char(Invoice.created_at, 'YYYY-MM-DD') == today_str
+                    Invoice.created_at >= start_of_today
                 )
             )
             invoices = invoices_res.scalars().all()

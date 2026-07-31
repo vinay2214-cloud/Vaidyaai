@@ -11,45 +11,115 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || ""
 };
 
-// Singleton initialization for Next.js 14 Fast Refresh resilience
-function getFirebaseApp(): FirebaseApp {
-  if (getApps().length > 0) {
-    return getApp();
-  }
+let appInstance: FirebaseApp | null = null;
+let authInstance: Auth | null = null;
+let firestoreInstance: Firestore | null = null;
 
-  if (typeof window !== "undefined" && (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("YOUR_REAL"))) {
-    console.error(
-      "❌ [Firebase Initialization Error] NEXT_PUBLIC_FIREBASE_API_KEY is unset or unpopulated in frontend/.env.local.\n" +
-      "Please set your real Firebase Web App credentials in frontend/.env.local from the Firebase Console."
-    );
+/**
+ * Returns FirebaseApp instance ONLY on client-side (`typeof window !== 'undefined'`).
+ * Returns null during server-side static rendering (SSG / SSR) to prevent premature Firebase initialization.
+ */
+export function getFirebaseApp(): FirebaseApp | null {
+  if (typeof window === "undefined") {
+    return null;
   }
-
-  return initializeApp(firebaseConfig);
+  if (!appInstance) {
+    if (getApps().length > 0) {
+      appInstance = getApp();
+    } else {
+      if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("YOUR_REAL")) {
+        console.warn(
+          "⚠️ [Firebase Notice] NEXT_PUBLIC_FIREBASE_API_KEY is unpopulated. Client authentication requires configured environment variables."
+        );
+      }
+      appInstance = initializeApp(firebaseConfig);
+    }
+  }
+  return appInstance;
 }
 
-const app: FirebaseApp = getFirebaseApp();
-export const firebaseAuth: Auth = getAuth(app);
-export const firestore: Firestore = getFirestore(app);
-
-// Connect Local Firebase Emulators if explicitly enabled in environment
-if (
-  typeof window !== "undefined" &&
-  process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true"
-) {
-  const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || "http://127.0.0.1:9099";
-  const firestoreHost = process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_EMULATOR_HOST || "127.0.0.1";
-  const firestorePort = parseInt(process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_EMULATOR_PORT || "8181", 10);
-
-  try {
-    if (!(firebaseAuth as any)._emulatorConfig) {
-      connectAuthEmulator(firebaseAuth, authHost, { disableWarnings: true });
-    }
-    if (!(firestore as any)._settings?.host) {
-      connectFirestoreEmulator(firestore, firestoreHost, firestorePort);
-    }
-  } catch (e) {
-    console.warn("Firebase emulator connection notice:", e);
+/**
+ * Returns Auth instance ONLY on client-side.
+ * Returns null during SSG / SSR build prerendering.
+ */
+export function getFirebaseAuth(): Auth | null {
+  if (typeof window === "undefined") {
+    return null;
   }
+  if (!authInstance) {
+    const app = getFirebaseApp();
+    if (!app) return null;
+    authInstance = getAuth(app);
+
+    if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true") {
+      const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || "http://127.0.0.1:9099";
+      try {
+        if (!(authInstance as any)._emulatorConfig) {
+          connectAuthEmulator(authInstance, authHost, { disableWarnings: true });
+        }
+      } catch (e) {
+        console.warn("Firebase Auth emulator connection notice:", e);
+      }
+    }
+  }
+  return authInstance;
 }
 
-export default app;
+/**
+ * Returns Firestore instance ONLY on client-side.
+ * Returns null during SSG / SSR build prerendering.
+ */
+export function getFirestoreDb(): Firestore | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  if (!firestoreInstance) {
+    const app = getFirebaseApp();
+    if (!app) return null;
+    firestoreInstance = getFirestore(app);
+
+    if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true") {
+      const firestoreHost = process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_EMULATOR_HOST || "127.0.0.1";
+      const firestorePort = parseInt(process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_EMULATOR_PORT || "8181", 10);
+      try {
+        if (!(firestoreInstance as any)._settings?.host) {
+          connectFirestoreEmulator(firestoreInstance, firestoreHost, firestorePort);
+        }
+      } catch (e) {
+        console.warn("Firestore emulator connection notice:", e);
+      }
+    }
+  }
+  return firestoreInstance;
+}
+
+/**
+ * Side-effect-free Proxies for backwards compatibility with existing imports.
+ * Accessing properties on firebaseAuth or firestore lazily invokes getFirebaseAuth() / getFirestoreDb().
+ * On the server side (typeof window === 'undefined'), returns undefined to ensure ZERO Firebase SDK calls occur during SSG.
+ */
+export const firebaseAuth = new Proxy({} as Auth, {
+  get(_target, prop, receiver) {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const instance = getFirebaseAuth();
+    if (!instance) return undefined;
+    const value = Reflect.get(instance, prop, receiver);
+    return typeof value === "function" ? value.bind(instance) : value;
+  }
+});
+
+export const firestore = new Proxy({} as Firestore, {
+  get(_target, prop, receiver) {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const instance = getFirestoreDb();
+    if (!instance) return undefined;
+    const value = Reflect.get(instance, prop, receiver);
+    return typeof value === "function" ? value.bind(instance) : value;
+  }
+});
+
+export default firebaseConfig;

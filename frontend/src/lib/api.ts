@@ -27,10 +27,14 @@ api.interceptors.request.use(async (config) => {
     config.timeout = 5000; // 5s for fast read operations
   }
 
-  const user = firebaseAuth.currentUser;
-  if (user) {
-    const token = await user.getIdToken();
-    config.headers.Authorization = `Bearer ${token}`;
+  if (typeof window !== "undefined") {
+    const user = firebaseAuth?.currentUser;
+    if (user) {
+      const token = await user.getIdToken();
+      config.headers.Authorization = `Bearer ${token}`;
+    } else if (isDevAuthBypassEnabled()) {
+      config.headers.Authorization = `Bearer dev_mock_id_token`;
+    }
   } else if (isDevAuthBypassEnabled()) {
     config.headers.Authorization = `Bearer dev_mock_id_token`;
   }

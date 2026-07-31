@@ -52,8 +52,16 @@ function getSectionForTime(slotTime: string, status: string): "morning" | "after
 
 export default function TodayQueuePage() {
   const { appointments, loading } = useAppointmentsToday();
-  const { summary } = useBilling();
+  const { summary, refresh: refreshBilling } = useBilling();
   const { logs } = useAgentLogs();
+
+  React.useEffect(() => {
+    refreshBilling();
+    const interval = setInterval(() => {
+      refreshBilling();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [refreshBilling]);
 
   const totalBooked = appointments.length;
   const arrived = appointments.filter((a) => a.status === "arrived").length;
@@ -177,7 +185,11 @@ export default function TodayQueuePage() {
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-foreground-muted">Avg Latency</span>
-                <span className="font-mono text-foreground">620ms</span>
+                <span className="font-mono text-foreground">
+                  {logs.length > 0 
+                    ? `${Math.round(logs.reduce((acc, log) => acc + (log.latency_ms || 0), 0) / logs.length)}ms`
+                    : "0ms"}
+                </span>
               </div>
             </div>
           </Panel>

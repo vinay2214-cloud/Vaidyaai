@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # Backend URL
     BACKEND_URL: str = os.getenv("BACKEND_URL", "https://vaidyaai-backend-placeholder.run.app")
     
+    # Feature Flags
+    FEATURE_AI_AUTONOMOUS: bool = os.getenv("FEATURE_AI_AUTONOMOUS", "true").lower() in ["true", "1", "yes"]
+    FEATURE_WHATSAPP: bool = os.getenv("FEATURE_WHATSAPP", "true").lower() in ["true", "1", "yes"]
+    FEATURE_VOICE: bool = os.getenv("FEATURE_VOICE", "true").lower() in ["true", "1", "yes"]
+    FEATURE_REALTIME_EVENTS: bool = os.getenv("FEATURE_REALTIME_EVENTS", "true").lower() in ["true", "1", "yes"]
+    FEATURE_ANALYTICS: bool = os.getenv("FEATURE_ANALYTICS", "true").lower() in ["true", "1", "yes"]
+    FEATURE_DEMO_MODE: bool = os.getenv("FEATURE_DEMO_MODE", "true").lower() in ["true", "1", "yes"]
+
     # CORS Config
     CORS_ORIGINS_RAW: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 

@@ -1,0 +1,143 @@
+"""
+VaidyaAI Agent Health API — Live metrics computed from agent_logs.
+
+Returns per-agent health metrics:
+  - agent_name, status, tasks_today, avg_latency_ms, success_rate_pct,
+    last_run_at, failures_today, last_decision
+"""
+import logging
+from datetime import datetime, timezone
+from typing import Dict, Any, List
+from fastapi import APIRouter, Depends, Query
+
+from api.auth import get_current_user, verify_clinic_access
+from database.firestore import query_documents
+from event_bus import get_event_bus
+
+logger = logging.getLogger("vaidyaai.api.agent_health")
+router = APIRouter()
+
+AGENT_NAMES = [
+    "appointment_flow",
+    "clinical_scribe",
+    "billing_pulse",
+    "retention_radar",
+    "prescription_safe",
+    "insight_engine",
+    "referral_coordinator",
+]
+
+AGENT_DISPLAY = {
+    "appointment_flow": {"name": "AppointmentFlow", "role": "WhatsApp Triage & Booking", "model": "gemini-1.5-flash"},
+    "clinical_scribe": {"name": "ClinicalScribe", "role": "Ambient Audio & SOAP", "model": "gemini-1.5-pro"},
+    "billing_pulse": {"name": "BillingPulse", "role": "Invoicing & UPI", "model": "gemini-1.5-flash"},
+    "retention_radar": {"name": "RetentionRadar", "role": "Follow-up Outreach", "model": "gemini-1.5-flash"},
+    "prescription_safe": {"name": "PrescriptionSafe", "role": "Drug Safety Audit", "model": "gemini-1.5-flash"},
+    "insight_engine": {"name": "InsightEngine", "role": "Analytics & Insights", "model": "gemini-1.5-pro"},
+    "referral_coordinator": {"name": "ReferralCoordinator", "role": "Referral Letters", "model": "gemini-1.5-pro"},
+}
+
+
+@router.get("/agents/health", tags=["agents"])
+async def get_agent_health(
+    clinic_id: str = Query(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    GET /api/v1/agents/health?clinic_id={id}
+    Returns live per-agent health metrics computed from agent_logs.
+    """
+    verify_clinic_access(clinic_id, current_user)
+
+    # Fetch recent agent logs (limit 200 for performance)
+    all_logs = await query_documents(
+        "agent_logs",
+        [("clinic_id", "==", clinic_id)],
+        limit=200,
+    )
+
+    # Get event bus state
+    bus = get_event_bus()
+    agent_states = bus.get_agent_states()
+
+    agents_health: List[Dict[str, Any]] = []
+
+    for agent_id in AGENT_NAMES:
+        agent_logs = [l for l in all_logs if l.get("agent_name") == agent_id]
+        display = AGENT_DISPLAY.get(agent_id, {})
+
+        tasks_today = len(agent_logs)
+        failures = [l for l in agent_logs if l.get("success") is False]
+        failures_today = len(failures)
+        success_count = tasks_today - failures_today
+
+        latencies = [
+            l.get("latency_ms")
+            for l in agent_logs
+            if l.get("latency_ms") is not None
+        ]
+        avg_latency = (
+            round(sum(latencies) / len(latencies)) if latencies else 0
+        )
+
+        success_rate = (
+            round(success_count / tasks_today * 100, 1) if tasks_today > 0 else 100.0
+        )
+
+        # Determine status from event bus state or from log data
+        bus_state = agent_states.get(agent_id)
+        if bus_state:
+            status = bus_state
+        elif failures_today > 0 and success_count == 0:
+            status = "failed"
+        elif tasks_today > 0:
+            status = "idle"
+        else:
+            status = "idle"
+
+        # Last run timestamp
+        last_run_at = None
+        last_decision = None
+        if agent_logs:
+            last_log = agent_logs[0]  # Already sorted desc by query
+            created_at = last_log.get("created_at")
+            if created_at:
+                if hasattr(created_at, "isoformat"):
+                    last_run_at = created_at.isoformat()
+                elif isinstance(created_at, str):
+                    last_run_at = created_at
+            last_decision = last_log.get("decision_made", "")
+
+        agents_health.append({
+            "id": agent_id,
+            "name": display.get("name", agent_id),
+            "role": display.get("role", ""),
+            "model": display.get("model", "gemini-1.5-flash"),
+            "status": status,
+            "tasks_today": tasks_today,
+            "avg_latency_ms": avg_latency,
+            "success_rate_pct": success_rate,
+            "last_run_at": last_run_at,
+            "failures_today": failures_today,
+            "last_decision": last_decision,
+        })
+
+    # Compute platform-wide metrics
+    total_tasks = sum(a["tasks_today"] for a in agents_health)
+    total_failures = sum(a["failures_today"] for a in agents_health)
+    all_latencies = [a["avg_latency_ms"] for a in agents_health if a["avg_latency_ms"] > 0]
+    platform_avg_latency = round(sum(all_latencies) / len(all_latencies)) if all_latencies else 0
+    active_count = sum(1 for a in agents_health if a["tasks_today"] > 0 or a["status"] == "idle")
+
+    return {
+        "clinic_id": clinic_id,
+        "platform": {
+            "active_agents": active_count,
+            "total_agents": len(AGENT_NAMES),
+            "total_tasks_today": total_tasks,
+            "total_failures_today": total_failures,
+            "avg_latency_ms": platform_avg_latency,
+            "health_pct": round((1 - total_failures / max(total_tasks, 1)) * 100, 1),
+        },
+        "agents": agents_health,
+    }

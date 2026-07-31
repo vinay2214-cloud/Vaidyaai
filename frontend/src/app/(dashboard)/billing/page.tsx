@@ -52,22 +52,41 @@ function formatCurrency(n: number) {
 
 export default function BillingWorkflowPage() {
   const clinicId = useClinicStore((state) => state.clinicId);
-  const { summary, loading: summaryLoading } = useBilling();
+  const { summary, loading: summaryLoading, refresh: refreshBilling } = useBilling();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "pending" | "paid">("all");
 
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1200);
-    return () => clearTimeout(timer);
-  }, []);
+    const timer = setTimeout(() => setLoading(false), 800);
+    const interval = setInterval(() => {
+      refreshBilling();
+    }, 30000);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [refreshBilling]);
 
   const collected = summary?.total_collected_rupees || 9500;
   const pending = summary?.pending_rupees || 1200;
   const invoiceCount = summary?.invoice_count || 5;
   const collectionRate = collected + pending > 0 ? Math.round((collected / (collected + pending)) * 100) : 0;
 
-  const workflow: WorkflowItem[] = [
+  const rawInvoices = summary?.invoices || [];
+  const displayWorkflow: WorkflowItem[] = rawInvoices.length > 0
+    ? rawInvoices.map((inv: any, idx: number) => ({
+        id: inv.invoice_id || `inv_${idx}`,
+        stage: inv.status === "paid" ? ("paid" as const) : ("invoice" as const),
+        patient: `Patient (${inv.patient_phone_masked})`,
+        phone: inv.patient_phone_masked,
+        amount: inv.amount_rupees,
+        method: inv.payment_method ? inv.payment_method.toUpperCase() : "Razorpay UPI",
+        status: inv.status === "paid" ? ("completed" as const) : ("pending" as const),
+        time: inv.created_at ? new Date(inv.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Today",
+        action: inv.status === "paid" ? "Paid" : `Invoice ${inv.invoice_number}`
+      }))
+    : [
     {
       id: "wf_1",
       stage: "consultation",
@@ -180,7 +199,7 @@ export default function BillingWorkflowPage() {
     },
   ];
 
-  const filtered = workflow.filter((item) => {
+  const filtered = displayWorkflow.filter((item) => {
     if (filter === "pending") return item.status === "pending" || item.status === "failed";
     if (filter === "paid") return item.status === "completed";
     return true;

@@ -69,33 +69,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     [router, onClose, toast]
   );
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        if (isOpen) onClose();
-      }
-      if (!isOpen) return;
-
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIndex((i) => (i + 1) % results.length);
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedIndex((i) => (i - 1 + results.length) % results.length);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const selected = results[selectedIndex];
-        if (selected) executeResult(selected);
-      } else if (e.key === "Escape") {
-        onClose();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose, selectedIndex, results, executeResult]);
-
   const results = useMemo<SearchResult[]>(() => {
     const q = query.toLowerCase().trim();
     const items: SearchResult[] = [
@@ -133,6 +106,33 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         item.type.toLowerCase().includes(q)
     );
   }, [query, appointments, clinicId]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (isOpen) onClose();
+      }
+      if (!isOpen) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((i) => (i + 1) % results.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((i) => (i - 1 + results.length) % results.length);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const selected = results[selectedIndex];
+        if (selected) executeResult(selected);
+      } else if (e.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose, selectedIndex, results, executeResult]);
 
   useEffect(() => {
     setSelectedIndex(0);

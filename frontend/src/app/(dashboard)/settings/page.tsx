@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useClinicStore } from "@/store/clinicStore";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { useAgentHealth } from "@/hooks/useAgentHealth";
 import { useToast, Panel, SectionHeader, Badge, ActivityFeed, ActivityItem, AIStatus, Button } from "@/components/design-system";
 import { cn } from "@/lib/cn";
 import {
@@ -26,17 +27,6 @@ import {
   CreditCard,
 } from "lucide-react";
 
-interface AgentConfig {
-  id: string;
-  name: string;
-  role: string;
-  model: string;
-  status: "active" | "paused" | "error";
-  tasksToday: number;
-  latency: string;
-  successRate: number;
-}
-
 interface Integration {
   id: string;
   name: string;
@@ -45,16 +35,6 @@ interface Integration {
   lastSync: string;
   icon: React.ElementType;
 }
-
-const agents: AgentConfig[] = [
-  { id: "appointment_flow", name: "AppointmentFlow", role: "WhatsApp Triage & Booking", model: "gemini-1.5-flash", status: "active", tasksToday: 42, latency: "0.2s", successRate: 99.2 },
-  { id: "clinical_scribe", name: "ClinicalScribe", role: "Ambient Audio & SOAP", model: "gemini-1.5-pro", status: "active", tasksToday: 18, latency: "1.4s", successRate: 98.5 },
-  { id: "billing_pulse", name: "BillingPulse", role: "Invoicing & UPI", model: "gemini-1.5-flash", status: "active", tasksToday: 30, latency: "0.5s", successRate: 100.0 },
-  { id: "retention_radar", name: "RetentionRadar", role: "Follow-up Outreach", model: "gemini-1.5-flash", status: "active", tasksToday: 15, latency: "2.1s", successRate: 96.0 },
-  { id: "prescription_safe", name: "PrescriptionSafe", role: "Drug Safety Audit", model: "gemini-1.5-flash", status: "active", tasksToday: 22, latency: "0.3s", successRate: 100.0 },
-  { id: "insight_engine", name: "InsightEngine", role: "Analytics & Insights", model: "gemini-1.5-pro", status: "active", tasksToday: 8, latency: "1.8s", successRate: 97.5 },
-  { id: "referral_coordinator", name: "ReferralCoordinator", role: "Referral Letters", model: "gemini-1.5-pro", status: "active", tasksToday: 5, latency: "0.9s", successRate: 99.0 },
-];
 
 const integrations: Integration[] = [
   { id: "whatsapp", name: "WhatsApp Cloud API", provider: "Meta", status: "connected", lastSync: "Just now", icon: Smartphone },
@@ -74,6 +54,7 @@ const auditEvents = [
 export default function SettingsOperationsPage() {
   const clinicId = useClinicStore((state) => state.clinicId);
   const { logs, loading: logsLoading } = useAgentLogs();
+  const { agents, platform, loading: healthLoading, refresh: refreshHealth } = useAgentHealth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"agents" | "integrations" | "audit" | "general">("agents");
@@ -101,10 +82,11 @@ export default function SettingsOperationsPage() {
   };
 
   const handleRefresh = () => {
+    refreshHealth();
     toast("Refreshing system status...", "info");
   };
 
-  if (loading || logsLoading) {
+  if (loading || logsLoading || healthLoading) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -141,7 +123,7 @@ export default function SettingsOperationsPage() {
           </div>
           <div>
             <p className="text-xs text-foreground-subtle">Platform Health</p>
-            <p className="text-lg font-bold text-foreground">99%</p>
+            <p className="text-lg font-bold text-foreground">{platform ? `${platform.health_pct}%` : "--"}</p>
           </div>
         </Panel>
         <Panel padding="sm" className="flex items-center gap-3">
@@ -149,8 +131,8 @@ export default function SettingsOperationsPage() {
             <Clock className="w-5 h-5 text-blue-400" />
           </div>
           <div>
-            <p className="text-xs text-foreground-subtle">Uptime</p>
-            <p className="text-lg font-bold text-foreground">99.99%</p>
+            <p className="text-xs text-foreground-subtle">Avg Latency</p>
+            <p className="text-lg font-bold text-foreground">{platform ? `${platform.avg_latency_ms}ms` : "--"}</p>
           </div>
         </Panel>
         <Panel padding="sm" className="flex items-center gap-3">
@@ -159,7 +141,7 @@ export default function SettingsOperationsPage() {
           </div>
           <div>
             <p className="text-xs text-foreground-subtle">Active Agents</p>
-            <p className="text-lg font-bold text-foreground">7/7</p>
+            <p className="text-lg font-bold text-foreground">{platform ? `${platform.active_agents}/${platform.total_agents}` : "--/--"}</p>
           </div>
         </Panel>
         <Panel padding="sm" className="flex items-center gap-3">
@@ -167,8 +149,8 @@ export default function SettingsOperationsPage() {
             <Shield className="w-5 h-5 text-orange-400" />
           </div>
           <div>
-            <p className="text-xs text-foreground-subtle">Security</p>
-            <p className="text-lg font-bold text-foreground">OK</p>
+            <p className="text-xs text-foreground-subtle">Failures Today</p>
+            <p className="text-lg font-bold text-foreground">{platform ? platform.total_failures_today : 0}</p>
           </div>
         </Panel>
       </div>
@@ -224,11 +206,11 @@ export default function SettingsOperationsPage() {
                             <p className="text-xs text-foreground-subtle">{agent.role}</p>
                           </td>
                           <td className="py-3 text-foreground-muted font-mono text-xs">{agent.model}</td>
-                          <td className="py-3 text-right text-foreground">{agent.tasksToday}</td>
-                          <td className="py-3 text-right text-foreground-muted">{agent.latency}</td>
+                          <td className="py-3 text-right text-foreground">{agent.tasks_today}</td>
+                          <td className="py-3 text-right text-foreground-muted">{agent.avg_latency_ms}ms</td>
                           <td className="py-3 text-right">
-                            <span className={cn("font-medium", agent.successRate >= 98 ? "text-green-400" : "text-orange-400")}>
-                              {agent.successRate}%
+                            <span className={cn("font-medium", agent.success_rate_pct >= 98 ? "text-green-400" : "text-orange-400")}>
+                              {agent.success_rate_pct}%
                             </span>
                           </td>
                           <td className="py-3 text-right">
@@ -276,26 +258,26 @@ export default function SettingsOperationsPage() {
               <div className="space-y-4">
                 <SectionHeader icon={FileText} title="Security & Audit Trail" />
                 <div className="space-y-2">
-                  {auditEvents.map((event) => (
+                  {logs.slice(0, 10).map((log) => (
                     <div
-                      key={event.id}
+                      key={log.id}
                       className={cn(
                         "flex items-center justify-between p-3 rounded-xl border",
-                        event.severity === "success" ? "bg-green-500/5 border-green-500/20" : "bg-background-elevated/50 border-border"
+                        log.success !== false ? "bg-green-500/5 border-green-500/20" : "bg-background-elevated/50 border-border"
                       )}
                     >
                       <div className="flex items-center gap-3">
-                        {event.severity === "success" ? (
+                        {log.success !== false ? (
                           <CheckCircle2 className="w-4 h-4 text-green-400" />
                         ) : (
-                          <Shield className="w-4 h-4 text-blue-400" />
+                          <Shield className="w-4 h-4 text-orange-400" />
                         )}
                         <div>
-                          <p className="text-sm font-medium text-foreground">{event.event}</p>
-                          <p className="text-xs text-foreground-subtle">{event.actor} • {event.time}</p>
+                          <p className="text-sm font-medium text-foreground">{log.decision_made}</p>
+                          <p className="text-xs text-foreground-subtle">{log.agent_name} • {log.created_at?.toDate?.().toLocaleString() || "Today"}</p>
                         </div>
                       </div>
-                      <Badge variant={event.severity === "success" ? "green" : "blue"}>{event.severity}</Badge>
+                      <Badge variant={log.success !== false ? "green" : "blue"}>{log.success !== false ? "success" : "failed"}</Badge>
                     </div>
                   ))}
                 </div>

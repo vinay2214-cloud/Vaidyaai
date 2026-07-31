@@ -16,12 +16,70 @@ export function SOAPNoteEditor({
 }) {
   const clinicId = useClinicStore((state) => state.clinicId);
   const { toast } = useToast();
-  const [subjective, setSubjective] = useState(consultation.soap_note?.subjective || "");
-  const [objective, setObjective] = useState(consultation.soap_note?.objective || "");
-  const [assessment, setAssessment] = useState(consultation.soap_note?.assessment || "");
-  const [plan, setPlan] = useState(consultation.soap_note?.plan || "");
+  const [subjective, setSubjective] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`vaidyaai_draft_soap_${consultation.consultation_id}`);
+      if (saved) {
+        try { return JSON.parse(saved).subjective || consultation.soap_note?.subjective || ""; } catch (e) {}
+      }
+    }
+    return consultation.soap_note?.subjective || "";
+  });
+  const [objective, setObjective] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`vaidyaai_draft_soap_${consultation.consultation_id}`);
+      if (saved) {
+        try { return JSON.parse(saved).objective || consultation.soap_note?.objective || ""; } catch (e) {}
+      }
+    }
+    return consultation.soap_note?.objective || "";
+  });
+  const [assessment, setAssessment] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`vaidyaai_draft_soap_${consultation.consultation_id}`);
+      if (saved) {
+        try { return JSON.parse(saved).assessment || consultation.soap_note?.assessment || ""; } catch (e) {}
+      }
+    }
+    return consultation.soap_note?.assessment || "";
+  });
+  const [plan, setPlan] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`vaidyaai_draft_soap_${consultation.consultation_id}`);
+      if (saved) {
+        try { return JSON.parse(saved).plan || consultation.soap_note?.plan || ""; } catch (e) {}
+      }
+    }
+    return consultation.soap_note?.plan || "";
+  });
   const [approving, setApproving] = useState(false);
   const [approved, setApproved] = useState(consultation.status === "approved");
+
+  // Auto-save draft to localStorage on edit
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && !approved) {
+      localStorage.setItem(
+        `vaidyaai_draft_soap_${consultation.consultation_id}`,
+        JSON.stringify({ subjective, objective, assessment, plan })
+      );
+    }
+  }, [subjective, objective, assessment, plan, consultation.consultation_id, approved]);
+
+  // Keyboard shortcuts (Cmd/Ctrl + S to Save, Cmd/Ctrl + Enter to Approve)
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        toast("Draft SOAP note saved locally.", "info", "clinical");
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !approved && !approving) {
+        e.preventDefault();
+        handleApprove();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [subjective, objective, assessment, plan, approved, approving]);
 
   const handleApprove = async () => {
     if (!clinicId) return;
@@ -33,11 +91,14 @@ export function SOAPNoteEditor({
         consultation_type: "new"
       });
       setApproved(true);
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(`vaidyaai_draft_soap_${consultation.consultation_id}`);
+      }
       onApproved(res.data);
-      toast("SOAP approved & UPI invoice issued.", "success");
+      toast("SOAP approved & UPI invoice issued.", "success", "clinical");
     } catch (e) {
       console.error("Approve consultation error:", e);
-      toast("Approval failed. Try again.", "error");
+      toast("Approval failed. Try again.", "error", "clinical");
     } finally {
       setApproving(false);
     }

@@ -173,12 +173,23 @@ async def receive_razorpay_webhook(
             payment_id = entity.get("payment_id") or entity.get("id")
 
             if payment_link_id:
-                await billing_pulse_agent.on_payment_confirmed(
+                result = await billing_pulse_agent.on_payment_confirmed(
                     razorpay_payment_link_id=payment_link_id,
                     amount_paise=amount_paise,
                     razorpay_payment_id=payment_id or "pay_unknown",
                     payment_method="upi"
                 )
+
+                # Emit PAYMENT_COMPLETED event AFTER database commit
+                from event_bus import ClinicalEvent, create_event, get_event_bus
+                bus = get_event_bus()
+                await bus.emit(create_event(
+                    ClinicalEvent.PAYMENT_COMPLETED,
+                    clinic_id=result.get("clinic_id", "cln_e2e_test_clinic"),
+                    consultation_id=result.get("consultation_id"),
+                    trigger="webhook:razorpay",
+                    payload={"payment_method": "upi", "amount_paise": amount_paise}
+                ))
 
         return {"status": "processed", "event": event}
     except Exception as e:

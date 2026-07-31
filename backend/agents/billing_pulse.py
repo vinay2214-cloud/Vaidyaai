@@ -182,6 +182,8 @@ class BillingPulseAgent(BaseAgent):
                 "invoice_number": invoice_num,
                 "amount_paise": amount_paise,
                 "amount_rupees": amount_rupees,
+                "payment_link_id": payment_link_id,
+                "razorpay_payment_link_id": payment_link_id,
                 "payment_link_url": payment_link_url,
                 "status": "pending"
             }
@@ -243,8 +245,13 @@ class BillingPulseAgent(BaseAgent):
 
     async def mark_as_cash(self, invoice_id: str, clinic_id: str) -> Dict[str, Any]:
         """Allows doctor to manually mark an invoice as paid via Cash in dashboard."""
+        import uuid
         async with AsyncSessionFactory() as db:
-            res = await db.execute(select(Invoice).where(Invoice.id == invoice_id))
+            try:
+                target_id = uuid.UUID(invoice_id) if isinstance(invoice_id, str) else invoice_id
+                res = await db.execute(select(Invoice).where(Invoice.id == target_id))
+            except (ValueError, AttributeError):
+                res = await db.execute(select(Invoice).where(Invoice.invoice_number == invoice_id))
             invoice = res.scalar_one_or_none()
             if not invoice:
                 return {"error": "Invoice not found"}

@@ -8,6 +8,7 @@ import { CommandPalette } from "./CommandPalette";
 import { MobileNav } from "./MobileNav";
 import { WalkInModal } from "@/components/WalkInModal";
 import { ToastProvider } from "@/components/design-system";
+import { useUIStore } from "@/store/uiStore";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -17,6 +18,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setSearchOpen((open) => !open);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        useUIStore.getState().setWalkInModalOpen(true);
       }
       if (e.key === "Escape" && searchOpen) {
         setSearchOpen(false);

@@ -39,6 +39,12 @@ class AgentLogger:
         patient_phone_masked: Optional[str] = None,
         appointment_id: Optional[str] = None,
         consultation_id: Optional[str] = None,
+        patient_id: Optional[str] = None,
+        visit_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        causation_id: Optional[str] = None,
+        event_id: Optional[str] = None,
+        resource: Optional[str] = None,
         success: bool = True,
         error_message: Optional[str] = None,
         prompt_tokens: Optional[int] = None,
@@ -67,8 +73,21 @@ class AgentLogger:
             payload["patient_phone_masked"] = patient_phone_masked
         if appointment_id:
             payload["appointment_id"] = appointment_id
+            payload["visit_id"] = appointment_id
+        if visit_id:
+            payload["visit_id"] = visit_id
         if consultation_id:
             payload["consultation_id"] = consultation_id
+        if patient_id:
+            payload["patient_id"] = patient_id
+        if correlation_id:
+            payload["correlation_id"] = correlation_id
+        if causation_id:
+            payload["causation_id"] = causation_id
+        if event_id:
+            payload["event_id"] = event_id
+        if resource:
+            payload["resource"] = resource
         if error_message:
             payload["error_message"] = error_message
         if prompt_tokens is not None:

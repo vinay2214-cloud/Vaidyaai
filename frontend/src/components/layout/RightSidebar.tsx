@@ -39,12 +39,28 @@ export function RightSidebar() {
   const { logs, loading } = useAgentLogs();
   const activities = logs.slice(0, 8).map(logToActivity);
 
-  const aiTasks = [
-    { label: "Clinical Scribe", state: "running" as const, sublabel: "Listening" },
-    { label: "SOAP Generation", state: "completed" as const, sublabel: "Ready" },
-    { label: "Drug Interaction", state: "completed" as const, sublabel: "0 conflicts" },
-    { label: "Billing Pulse", state: "running" as const, sublabel: "₹500 ready" },
-  ];
+  const latestLogsByAgent = logs.reduce((acc, log) => {
+    const key = log.agent_name;
+    const logTime = log.created_at?.toDate?.() || new Date(log.created_at || Date.now());
+    const existingTime = acc[key]?.created_at?.toDate?.() || new Date(acc[key]?.created_at || 0);
+    if (!acc[key] || logTime > existingTime) {
+      acc[key] = log;
+    }
+    return acc;
+  }, {} as Record<string, AgentLog>);
+
+  const aiTasks = Object.values(latestLogsByAgent).slice(0, 4).map(log => ({
+    label: log.agent_name.includes(":") ? log.agent_name.split(":")[1].trim() : log.agent_name,
+    state: log.success === false ? ("pending" as const) : ("completed" as const),
+    sublabel: log.decision_made.substring(0, 25) + (log.decision_made.length > 25 ? "..." : "")
+  }));
+
+  const safetyAlerts = logs
+    .filter(l => l.agent_name.toLowerCase().includes("prescription_safe"))
+    .slice(0, 2);
+
+  const prescriptionCount = logs.filter(l => l.agent_name.toLowerCase().includes("prescription")).length;
+  const billingCount = logs.filter(l => l.agent_name.toLowerCase().includes("billing")).length;
 
   return (
     <aside className="w-72 bg-background-panel border-l border-border flex flex-col h-full shrink-0">
@@ -73,14 +89,16 @@ export function RightSidebar() {
             <span className="text-xs font-semibold text-foreground">Safety Alerts</span>
           </div>
           <div className="space-y-2">
-            <div className="flex items-start gap-2 p-2 rounded-lg bg-orange-500/10 border border-orange-500/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-1.5" />
-              <p className="text-xs text-foreground">Penicillin allergy on file. Avoid beta-lactam antibiotics.</p>
-            </div>
-            <div className="flex items-start gap-2 p-2 rounded-lg bg-red-500/10 border border-red-500/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400 mt-1.5" />
-              <p className="text-xs text-foreground">Diabetic retinopathy screening overdue by 60 days.</p>
-            </div>
+            {safetyAlerts.length > 0 ? (
+              safetyAlerts.map((alert, i) => (
+                <div key={i} className={`flex items-start gap-2 p-2 rounded-lg ${alert.success === false ? 'bg-red-500/10 border border-red-500/30' : 'bg-orange-500/10 border border-orange-500/30'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${alert.success === false ? 'bg-red-400' : 'bg-orange-400'} mt-1.5 shrink-0`} />
+                  <p className="text-xs text-foreground">{alert.decision_made}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-foreground-subtle">No active safety alerts.</p>
+            )}
           </div>
         </Panel>
 
@@ -101,11 +119,11 @@ export function RightSidebar() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm text-foreground">
               <CheckCircle2 className="w-4 h-4 text-green-400" />
-              <span>Review 2 pending prescriptions</span>
+              <span>{prescriptionCount} prescription checks today</span>
             </div>
             <div className="flex items-center gap-2 text-sm text-foreground">
               <CheckCircle2 className="w-4 h-4 text-green-400" />
-              <span>Send 1 follow-up reminder</span>
+              <span>{billingCount} billing tasks processed</span>
             </div>
           </div>
         </Panel>

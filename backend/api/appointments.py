@@ -15,6 +15,7 @@ from database.firestore import (
 from tasks.cloud_tasks import cancel_task
 from utils.phone_utils import mask_phone, normalize_phone
 from utils.date_utils import get_today_ist_date_str, get_current_ist_datetime
+from event_bus import ClinicalEvent, create_event, get_event_bus
 
 logger = logging.getLogger("vaidyaai.api.appointments")
 router = APIRouter()
@@ -128,6 +129,33 @@ async def create_walk_in_appointment(
     await set_document("appointments", app_id, appointment_data)
 
     logger.info(f"Created walk-in appointment '{app_id}' (# {queue_number}) for clinic {req.clinic_id}")
+
+    # Emit events AFTER database commit
+    bus = get_event_bus()
+    correlation_id = f"corr_{int(now_utc.timestamp())}"
+
+    await bus.emit(create_event(
+        ClinicalEvent.PATIENT_REGISTERED,
+        clinic_id=req.clinic_id,
+        correlation_id=correlation_id,
+        patient_id=patient_id,
+        doctor_id=current_user.get("uid"),
+        trigger="api:walk_in",
+        payload={"patient_name": req.patient_name, "phone_masked": mask_phone(normalized_phone)},
+    ))
+
+    await bus.emit(create_event(
+        ClinicalEvent.VISIT_CREATED,
+        clinic_id=req.clinic_id,
+        correlation_id=correlation_id,
+        causation_id=f"patient_registered:{patient_id}",
+        patient_id=patient_id,
+        visit_id=app_id,
+        doctor_id=current_user.get("uid"),
+        trigger="api:walk_in",
+        payload={"queue_number": queue_number, "slot_time_str": slot_time_str, "complaint": req.complaint_summary},
+    ))
+
     return {
         "appointment_id": app_id,
         "patient_id": patient_id,
@@ -176,6 +204,18 @@ async def update_appointment_status(
 
     await update_document("appointments", id, update_payload)
     logger.info(f"Updated appointment '{id}' status to '{req.status}'")
+
+    # Emit QUEUE_UPDATED event AFTER database commit
+    bus = get_event_bus()
+    await bus.emit(create_event(
+        ClinicalEvent.QUEUE_UPDATED,
+        clinic_id=req.clinic_id,
+        visit_id=id,
+        patient_id=appointment.get("patient_id"),
+        doctor_id=current_user.get("uid"),
+        trigger="api:status_update",
+        payload={"new_status": req.status, "previous_status": appointment.get("status")},
+    ))
 
     return {
         "updated": True,

@@ -22,6 +22,7 @@ __pycache__/
 env/
 venv/
 .venv/
+.ga_venv/
 ENV/
 build/
 develop-eggs/
@@ -29,8 +30,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
+!src/lib/
+!**/src/lib/**
 parts/
 sdist/
 var/

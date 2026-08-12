@@ -1,19 +1,34 @@
+"use client";
+
 import React from "react";
+import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { useAgentHealth } from "@/hooks/useAgentHealth";
 import { AgentCard } from "../shared/AgentCard";
 import { DecisionCard } from "../shared/DecisionCard";
-import { CreditCard, Bot, ShieldCheck, Activity } from "lucide-react";
+import { CreditCard, Bot } from "lucide-react";
 
 export const BillingSidebar: React.FC = () => {
+  const { logs } = useAgentLogs();
+  const { agents } = useAgentHealth();
+
+  // Find BillingPulse agent info
+  const billingAgentInfo = agents.find((a) => a.id === "billing_pulse");
+  
   const billingAgent = {
     name: "Agent 3: BillingPulse",
     agentId: "billing_pulse",
     role: "Automated Invoicing & Razorpay UPI",
-    status: "active" as const,
-    lastTask: "Processed ₹35,400 UPI collections",
-    activityCount: 30,
-    health: 100,
-    latencyMs: 310
+    status: (billingAgentInfo?.status === "active" ? "active" : "idle") as "active" | "idle",
+    lastTask: billingAgentInfo?.last_decision || "No billing decisions yet",
+    activityCount: billingAgentInfo?.tasks_today || 0,
+    health: billingAgentInfo?.success_rate_pct ?? 0,
+    latencyMs: billingAgentInfo?.avg_latency_ms || 0
   };
+
+  // Filter logs for billing pulse
+  const billingLogs = logs
+    .filter((log) => log.agent_name.toLowerCase().includes("billing"))
+    .slice(0, 3);
 
   return (
     <aside className="space-y-4">
@@ -34,11 +49,11 @@ export const BillingSidebar: React.FC = () => {
         <div className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-3 space-y-1 text-xs font-mono">
           <div className="flex justify-between text-slate-300">
             <span>Financial Health Score:</span>
-            <strong className="text-teal-400 font-bold">98/100</strong>
+            <strong className="text-teal-400 font-bold">{billingAgent.health}/100</strong>
           </div>
           <div className="flex justify-between text-slate-300">
             <span>Daily P&L Report:</span>
-            <strong className="text-emerald-400">9 PM IST Job Active</strong>
+            <strong className="text-emerald-400">Active</strong>
           </div>
         </div>
       </div>
@@ -54,24 +69,22 @@ export const BillingSidebar: React.FC = () => {
         </div>
 
         <div className="space-y-2">
-          <DecisionCard
-            id="dec_b1"
-            agentName="BillingPulse"
-            decisionType="invoice_generated"
-            decisionMade="Generated invoice VDY-20260725-0012 (₹500) & sent Razorpay UPI link on WhatsApp."
-            timeAgo="Today"
-            modelUsed="gemini-1.5-flash"
-            latencyMs={310}
-          />
-          <DecisionCard
-            id="dec_b2"
-            agentName="BillingPulse"
-            decisionType="upi_received"
-            decisionMade="Razorpay webhook verified UPI signature: ₹500 marked paid instantly."
-            timeAgo="Today"
-            modelUsed="gemini-1.5-flash"
-            latencyMs={180}
-          />
+          {billingLogs.length > 0 ? (
+            billingLogs.map((log) => (
+              <DecisionCard
+                key={log.id}
+                id={log.id}
+                agentName="BillingPulse"
+                decisionType={log.decision_type}
+                decisionMade={log.decision_made}
+                timeAgo={log.created_at ? "Today" : "Recent"}
+                modelUsed={log.model_used || "—"}
+                latencyMs={log.latency_ms || 0}
+              />
+            ))
+          ) : (
+            <p className="text-xs text-slate-400 text-center py-4">No billing decisions yet today.</p>
+          )}
         </div>
       </div>
     </aside>

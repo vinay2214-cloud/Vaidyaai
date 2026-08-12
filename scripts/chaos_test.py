@@ -32,7 +32,7 @@ async def test_vertex_ai_fallback():
     # In development mode, gemini_call falls back gracefully to structured JSON
     result = await gemini.generate_json(
         prompt="Synthesize patient SOAP note for fever",
-        model="gemini-1.5-pro"
+        model="gemini-2.5-pro"
     )
     assert result is not None, "Vertex AI fallback returned None!"
     logger.info("  ✓ Vertex AI fallback succeeded without crashing.")

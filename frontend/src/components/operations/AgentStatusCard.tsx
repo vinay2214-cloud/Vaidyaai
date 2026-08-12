@@ -25,25 +25,31 @@ interface AgentStatusCardProps {
 }
 
 export const AgentStatusCard: React.FC<AgentStatusCardProps> = ({ agent, className }) => {
-  const isHealthy = agent.status === "active" || agent.status === "busy";
+  const statusStr = String(agent.status || "").toLowerCase();
+  const isIdle = statusStr === "idle" || agent.tasksCompletedToday === 0;
+  const isFailed = statusStr === "failed" || statusStr === "error" || (agent.recentErrorsCount > 0 && agent.successRatePct < 50);
+  const isHealthy = !isFailed && !isIdle;
+
+  const badgeLabel = isIdle ? "Idle" : isFailed ? "Failed" : statusStr === "active" || statusStr === "running" ? "Running" : "Healthy";
+  const badgeVariant: "neutral" | "running" | "error" = isIdle ? "neutral" : isFailed ? "error" : "running";
 
   return (
     <div
       className={clsx(
         "bg-slate-800/80 border rounded-2xl p-4 space-y-3 shadow-sm hover:border-slate-600 transition-colors",
-        isHealthy ? "border-slate-700/60" : "border-rose-500/40 bg-rose-950/10",
+        isFailed ? "border-rose-500/40 bg-rose-950/10" : isIdle ? "border-slate-700/60 bg-slate-800/40" : "border-teal-500/30 bg-slate-800/80",
         className
       )}
     >
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
-          <AgentDot status={agent.status} />
+          <AgentDot status={isIdle ? "idle" : isFailed ? "error" : "active"} />
           <div>
             <div className="flex items-center gap-2">
               <h4 className="font-bold text-white text-sm">{agent.name}</h4>
               <StatusBadge
-                label={agent.status === "active" ? "Healthy" : agent.status}
-                variant={isHealthy ? "running" : "error"}
+                label={badgeLabel}
+                variant={badgeVariant}
                 size="sm"
               />
             </div>
@@ -53,7 +59,10 @@ export const AgentStatusCard: React.FC<AgentStatusCardProps> = ({ agent, classNa
 
         <div className="flex items-center gap-2 text-xs font-mono">
           <LatencyBadge latencyMs={agent.avgLatencyMs} />
-          <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/30">
+          <span className={clsx(
+            "font-bold px-2 py-0.5 rounded-md border",
+            isIdle ? "text-slate-400 bg-slate-700/30 border-slate-600/30" : isFailed ? "text-rose-400 bg-rose-500/10 border-rose-500/30" : "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+          )}>
             {agent.successRatePct}% Success
           </span>
         </div>

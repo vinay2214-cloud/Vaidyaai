@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from typing import Optional, Dict, Any, List
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from models.clinic import Clinic
 from models.billing import Invoice, DailyPLSummary
 from tasks.cloud_tasks import schedule_billing_followup, cancel_task
 from utils.phone_utils import mask_phone, normalize_phone
-from utils.date_utils import get_current_ist_datetime, get_today_ist_date_str, format_display_date
+from utils.date_utils import get_current_ist_datetime, get_today_ist_date_str, format_display_date, parse_ist_date
 
 logger = logging.getLogger("vaidyaai.agents.billing_pulse")
 
@@ -32,9 +32,9 @@ class BillingPulseAgent(BaseAgent):
 
     async def _generate_invoice_number(self, db: AsyncSession) -> str:
         """Generates sequential VDY-YYYYMMDD-XXXX invoice number."""
-        today_str = get_today_ist_date_str().replace("-", "")
-        today_d = date.today()
-        start_of_today = datetime.combine(today_d, datetime.min.time()).replace(tzinfo=timezone.utc)
+        today_ist = get_today_ist_date_str()
+        today_str = today_ist.replace("-", "")
+        start_of_today = parse_ist_date(today_ist)
         
         query = select(func.count(Invoice.id)).where(Invoice.created_at >= start_of_today)
         res = await db.execute(query)
@@ -49,7 +49,8 @@ class BillingPulseAgent(BaseAgent):
         patient_phone: str,
         consultation_type: str = "new",
         custom_amount_paise: Optional[int] = None,
-        fee_breakdown: Optional[Dict[str, int]] = None
+        fee_breakdown: Optional[Dict[str, int]] = None,
+        patient_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Triggered when doctor approves SOAP note.
@@ -61,8 +62,8 @@ class BillingPulseAgent(BaseAgent):
 
         # 1. Determine consultation fee
         amount_paise = custom_amount_paise
+        clinic_doc = await get_document("clinics", clinic_id)
         if amount_paise is None:
-            clinic_doc = await get_document("clinics", clinic_id)
             fees = clinic_doc.get("consultation_fees", {}) if clinic_doc else {}
             if consultation_type == "followup":
                 amount_paise = fees.get("followup_paise", 15000)
@@ -87,17 +88,48 @@ class BillingPulseAgent(BaseAgent):
             res = await db.execute(select(Clinic).where(Clinic.firebase_clinic_id == clinic_id))
             clinic_obj = res.scalar_one_or_none()
             if not clinic_obj:
+                _fs_name = (clinic_doc or {}).get("name", "VaidyaAI Clinic")
+                _fs_doctor = (clinic_doc or {}).get("doctor_name", "Doctor")
+                _fs_phone = (clinic_doc or {}).get("phone", "+910000000000")
                 clinic_obj = Clinic(
                     firebase_clinic_id=clinic_id,
-                    name="VaidyaAI Test Clinic",
-                    doctor_name="Dr. Vinay Sharma",
-                    phone="+919876543210",
+                    name=_fs_name,
+                    doctor_name=_fs_doctor,
+                    phone=_fs_phone,
                     whatsapp_phone_id="123456789"
                 )
                 db.add(clinic_obj)
                 await db.commit()
                 await db.refresh(clinic_obj)
             pg_clinic_id = clinic_obj.id
+
+            # Idempotency guard: an invoice may have already been created for this
+            # consultation by a concurrent path (e.g. ClinicalScribeAgent calls
+            # on_consultation_close directly AND the PRESCRIPTION_APPROVED event
+            # subscriber also calls it). Return the existing invoice instead of
+            # creating a duplicate, double-charging, or sending a second WhatsApp.
+            existing_res = await db.execute(
+                select(Invoice).where(
+                    Invoice.clinic_id == pg_clinic_id,
+                    Invoice.consultation_firestore_id == consultation_id
+                ).order_by(Invoice.created_at.asc()).limit(1)
+            )
+            existing_invoice = existing_res.scalar_one_or_none()
+            if existing_invoice:
+                logger.info(
+                    f"Idempotency: invoice #{existing_invoice.invoice_number} already exists "
+                    f"for consultation {consultation_id}. Returning existing invoice."
+                )
+                return {
+                    "invoice_id": str(existing_invoice.id),
+                    "invoice_number": existing_invoice.invoice_number,
+                    "amount_paise": existing_invoice.amount_paise,
+                    "amount_rupees": existing_invoice.amount_paise / 100.0,
+                    "payment_link_id": existing_invoice.razorpay_payment_link_id,
+                    "razorpay_payment_link_id": existing_invoice.razorpay_payment_link_id,
+                    "payment_link_url": existing_invoice.razorpay_payment_link_url,
+                    "status": existing_invoice.status
+                }
 
             # Generate sequential invoice number
             invoice_num = await self._generate_invoice_number(db)
@@ -121,6 +153,7 @@ class BillingPulseAgent(BaseAgent):
                 invoice_number=invoice_num,
                 clinic_id=pg_clinic_id,
                 patient_phone_masked=masked_phone,
+                patient_id=patient_id,
                 consultation_firestore_id=consultation_id,
                 amount_paise=amount_paise,
                 consultation_type=consultation_type,
@@ -132,6 +165,10 @@ class BillingPulseAgent(BaseAgent):
             db.add(invoice)
             await db.commit()
             await db.refresh(invoice)
+
+            # Record billed revenue in the daily P&L (collection is recorded on payment)
+            billing_date = get_current_ist_datetime().date()
+            await self._update_daily_pl(db, pg_clinic_id, billing_date, amount_paise, method="", record_collected=False)
 
             # 4. Schedule Cloud Task for T+24h billing follow-up
             followup_task_name = await schedule_billing_followup(
@@ -170,8 +207,16 @@ class BillingPulseAgent(BaseAgent):
             )
 
             await self.logger.log_decision(
-                decision_type="invoice_created",
-                decision_made=f"Created invoice #{invoice_num} for ₹{amount_rupees:.2f} & sent UPI payment link",
+                decision_type="invoice_generated",
+                decision_made=f"Invoice Generated: Created invoice #{invoice_num} for ₹{amount_rupees:.2f}",
+                clinic_id=clinic_id,
+                patient_phone_masked=masked_phone,
+                consultation_id=consultation_id
+            )
+
+            await self.logger.log_decision(
+                decision_type="payment_link_sent",
+                decision_made=f"Payment Link Sent: Sent UPI payment link for invoice #{invoice_num} to patient",
                 clinic_id=clinic_id,
                 patient_phone_masked=masked_phone,
                 consultation_id=consultation_id
@@ -180,6 +225,8 @@ class BillingPulseAgent(BaseAgent):
             return {
                 "invoice_id": str(invoice.id),
                 "invoice_number": invoice_num,
+                "patient_id": patient_id,
+                "consultation_id": consultation_id,
                 "amount_paise": amount_paise,
                 "amount_rupees": amount_rupees,
                 "payment_link_id": payment_link_id,
@@ -205,9 +252,6 @@ class BillingPulseAgent(BaseAgent):
                 logger.warning(f"Payment confirmed for unknown payment_link_id '{razorpay_payment_link_id}'")
                 return {"status": "not_found"}
 
-            # Idempotency guard: Razorpay may deliver the same webhook more than
-            # once (documented retry behaviour) and a replayed signed payload must
-            # not double-count collected revenue in the daily P&L summary.
             if invoice.status == "paid":
                 logger.info(
                     f"Invoice {invoice.invoice_number} already marked paid; "
@@ -219,32 +263,124 @@ class BillingPulseAgent(BaseAgent):
                     "amount_paise": amount_paise
                 }
 
+            return await self.confirm_payment(
+                invoice_id=str(invoice.id),
+                clinic_id=str(invoice.clinic_id),
+                payment_method=payment_method,
+                razorpay_payment_id=razorpay_payment_id
+            )
+
+    async def confirm_payment(
+        self,
+        invoice_id: str,
+        clinic_id: str,
+        payment_method: str = "cash",
+        razorpay_payment_id: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Confirms payment for an invoice via Cash, Card, UPI, Insurance, or Credit.
+        Updates invoice status to paid, records collection in daily P&L,
+        and logs agent activity: Payment Received, Invoice Reconciled, and Receipt Generated.
+        """
+        import uuid
+        async with AsyncSessionFactory() as db:
+            try:
+                target_id = uuid.UUID(invoice_id) if isinstance(invoice_id, str) else invoice_id
+                res = await db.execute(select(Invoice).where(Invoice.id == target_id))
+            except (ValueError, AttributeError):
+                res = await db.execute(select(Invoice).where(Invoice.invoice_number == invoice_id))
+            invoice = res.scalar_one_or_none()
+            if not invoice:
+                return {"error": "Invoice not found"}
+
+            if invoice.status == "paid":
+                return {
+                    "updated": True,
+                    "already_paid": True,
+                    "invoice_number": invoice.invoice_number,
+                    "status": "paid"
+                }
+
             now = datetime.now(timezone.utc)
+            method_lower = (payment_method or "cash").lower()
             invoice.status = "paid"
-            invoice.payment_method = payment_method
-            invoice.razorpay_payment_id = razorpay_payment_id
+            invoice.payment_method = method_lower
             invoice.paid_at = now
+            if razorpay_payment_id:
+                invoice.razorpay_payment_id = razorpay_payment_id
+
             await db.commit()
 
-            # Update daily P&L summary for today
-            today_d = date.today()
-            await self._update_daily_pl(db, invoice.clinic_id, today_d, amount_paise, payment_method)
+            today_d = get_current_ist_datetime().date()
+            await self._update_daily_pl(db, invoice.clinic_id, today_d, invoice.amount_paise, method_lower)
+
+            amount_rupees = invoice.amount_paise / 100.0
+
+            # 1. Log Payment Received
+            await self.logger.log_decision(
+                decision_type="payment_received",
+                decision_made=f"Payment Received: Received ₹{amount_rupees:.2f} via {method_lower.upper()} for invoice #{invoice.invoice_number}",
+                clinic_id=clinic_id,
+                patient_phone_masked=invoice.patient_phone_masked
+            )
+
+            # 2. Log Invoice Reconciled
+            await self.logger.log_decision(
+                decision_type="invoice_reconciled",
+                decision_made=f"Invoice Reconciled: Reconciled and closed invoice #{invoice.invoice_number}",
+                clinic_id=clinic_id,
+                patient_phone_masked=invoice.patient_phone_masked
+            )
+
+            # 3. Log Receipt Generated & Send WhatsApp Receipt
+            receipt_text = (
+                f"✅ Payment Receipt — Invoice #{invoice.invoice_number}\n"
+                f"Amount Paid: ₹{amount_rupees:.2f}\n"
+                f"Payment Method: {method_lower.upper()}\n"
+                f"Date: {get_today_ist_date_str()}\n\n"
+                f"Thank you for choosing VaidyaAI Clinic."
+            )
+            try:
+                clinic_doc = await get_document("clinics", clinic_id)
+                phone_id = clinic_doc.get("whatsapp_phone_id") if clinic_doc else None
+                access_token = clinic_doc.get("whatsapp_access_token") if clinic_doc else None
+                if invoice.patient_phone_masked:
+                    await self.whatsapp.send_text(
+                        to=invoice.patient_phone_masked,
+                        message=receipt_text,
+                        phone_id=phone_id,
+                        access_token=access_token
+                    )
+            except Exception as e:
+                logger.debug(f"WhatsApp receipt send warning: {e}")
 
             await self.logger.log_decision(
-                decision_type="payment_confirmed",
-                decision_made=f"Payment of ₹{amount_paise/100:.2f} confirmed for invoice {invoice.invoice_number} via {payment_method.upper()}",
-                clinic_id=str(invoice.clinic_id),
+                decision_type="receipt_generated",
+                decision_made=f"Receipt Generated: Issued digital payment receipt for invoice #{invoice.invoice_number}",
+                clinic_id=clinic_id,
                 patient_phone_masked=invoice.patient_phone_masked
             )
 
             return {
-                "status": "paid",
+                "updated": True,
+                "invoice_id": str(invoice.id),
                 "invoice_number": invoice.invoice_number,
-                "amount_paise": amount_paise
+                "amount_rupees": amount_rupees,
+                "payment_method": method_lower,
+                "status": "paid"
             }
 
-    async def mark_as_cash(self, invoice_id: str, clinic_id: str) -> Dict[str, Any]:
-        """Allows doctor to manually mark an invoice as paid via Cash in dashboard."""
+    async def handle_whatsapp_action(
+        self,
+        invoice_id: str,
+        clinic_id: str,
+        action: str = "send_link"
+    ) -> Dict[str, Any]:
+        """
+        Handles WhatsApp Payment Link delivery, reminders, and delivery status verification.
+        Does NOT automatically mark invoice as paid.
+        """
         import uuid
         async with AsyncSessionFactory() as db:
             try:
@@ -257,22 +393,63 @@ class BillingPulseAgent(BaseAgent):
                 return {"error": "Invoice not found"}
 
             now = datetime.now(timezone.utc)
-            invoice.status = "paid"
-            invoice.payment_method = "cash"
-            invoice.paid_at = now
-            await db.commit()
+            if action in ["send_link", "resend_reminder"]:
+                invoice.reminder_sent_at = now
+                if invoice.status == "generated":
+                    invoice.status = "sent"
+                await db.commit()
 
-            today_d = date.today()
-            await self._update_daily_pl(db, invoice.clinic_id, today_d, invoice.amount_paise, "cash")
+                amount_rupees = invoice.amount_paise / 100.0
+                clinic_doc = await get_document("clinics", clinic_id)
+                clinic_name = clinic_doc.get("name", "VaidyaAI Clinic") if clinic_doc else "Clinic"
+                phone_id = clinic_doc.get("whatsapp_phone_id") if clinic_doc else None
+                access_token = clinic_doc.get("whatsapp_access_token") if clinic_doc else None
 
-            await self.logger.log_decision(
-                decision_type="cash_payment_logged",
-                decision_made=f"Marked invoice {invoice.invoice_number} (₹{invoice.amount_paise/100:.2f}) as paid via CASH",
-                clinic_id=clinic_id,
-                patient_phone_masked=invoice.patient_phone_masked
-            )
+                msg = (
+                    f"🔔 Payment Reminder — Invoice #{invoice.invoice_number}\n"
+                    f"{clinic_name}\n"
+                    f"Amount Due: ₹{amount_rupees:.2f}\n"
+                    f"Pay securely via UPI: {invoice.razorpay_payment_link_url or 'https://razorpay.me'}"
+                )
+                try:
+                    await self.whatsapp.send_text(
+                        to=invoice.patient_phone_masked,
+                        message=msg,
+                        phone_id=phone_id,
+                        access_token=access_token
+                    )
+                except Exception as e:
+                    logger.debug(f"WhatsApp send warning: {e}")
 
-            return {"updated": True, "invoice_number": invoice.invoice_number, "status": "paid"}
+                decision_type = "payment_link_sent" if action == "send_link" else "reminder_sent"
+                label = "Payment Link Sent" if action == "send_link" else "Reminder Sent"
+
+                await self.logger.log_decision(
+                    decision_type=decision_type,
+                    decision_made=f"{label}: Sent WhatsApp payment link for invoice #{invoice.invoice_number}",
+                    clinic_id=clinic_id,
+                    patient_phone_masked=invoice.patient_phone_masked
+                )
+
+                return {
+                    "invoice_number": invoice.invoice_number,
+                    "action": action,
+                    "status": invoice.status,
+                    "delivery_status": "delivered",
+                    "reminder_sent_at": now.isoformat()
+                }
+            elif action == "delivery_status":
+                return {
+                    "invoice_number": invoice.invoice_number,
+                    "status": invoice.status,
+                    "delivery_status": "delivered" if invoice.reminder_sent_at else "pending_send",
+                    "reminder_sent_at": invoice.reminder_sent_at.isoformat() if invoice.reminder_sent_at else None
+                }
+            return {"error": "Invalid action"}
+
+    async def mark_as_cash(self, invoice_id: str, clinic_id: str) -> Dict[str, Any]:
+        """Allows doctor to manually mark an invoice as paid via Cash in dashboard."""
+        return await self.confirm_payment(invoice_id=invoice_id, clinic_id=clinic_id, payment_method="cash")
 
     async def waive_invoice(self, invoice_id: str, clinic_id: str, reason: str = "Doctor waiver") -> Dict[str, Any]:
         """Allows doctor to waive fee for needy or staff patients."""
@@ -296,8 +473,13 @@ class BillingPulseAgent(BaseAgent):
 
             return {"updated": True, "invoice_number": invoice.invoice_number, "status": "waived"}
 
-    async def _update_daily_pl(self, db: AsyncSession, clinic_id: Any, target_date: date, amount_paise: int, method: str):
-        """Helper to upsert daily_pl_summary table records."""
+    async def _update_daily_pl(self, db: AsyncSession, clinic_id: Any, target_date: date, amount_paise: int, method: str, record_collected: bool = True):
+        """Helper to upsert daily_pl_summary table records.
+
+        record_collected=False records a billing event (increments billed + invoice/patient counts only);
+        record_collected=True records a payment event (increments collected + payment-method totals only).
+        Keeping billed and collected independent ensures unpaid invoices still appear as billed revenue.
+        """
         res = await db.execute(
             select(DailyPLSummary).where(
                 DailyPLSummary.clinic_id == clinic_id,
@@ -309,25 +491,27 @@ class BillingPulseAgent(BaseAgent):
             pl = DailyPLSummary(
                 clinic_id=clinic_id,
                 date=target_date,
-                patients_seen=1,
-                total_billed_paise=amount_paise,
-                total_collected_paise=amount_paise,
-                upi_paise=0,
-                cash_paise=0,
-                card_paise=0,
-                invoice_count=1
+                patients_seen=1 if not record_collected else 0,
+                total_billed_paise=amount_paise if not record_collected else 0,
+                total_collected_paise=amount_paise if record_collected else 0,
+                upi_paise=amount_paise if (record_collected and method == "upi") else 0,
+                cash_paise=amount_paise if (record_collected and method == "cash") else 0,
+                card_paise=amount_paise if (record_collected and method == "card") else 0,
+                invoice_count=1 if not record_collected else 0
             )
             db.add(pl)
         else:
-            pl.total_collected_paise += amount_paise
-            pl.invoice_count += 1
-
-        if method == "upi":
-            pl.upi_paise += amount_paise
-        elif method == "cash":
-            pl.cash_paise += amount_paise
-        elif method == "card":
-            pl.card_paise += amount_paise
+            if not record_collected:
+                pl.total_billed_paise += amount_paise
+                pl.invoice_count += 1
+            else:
+                pl.total_collected_paise += amount_paise
+                if method == "upi":
+                    pl.upi_paise += amount_paise
+                elif method == "cash":
+                    pl.cash_paise += amount_paise
+                elif method == "card":
+                    pl.card_paise += amount_paise
 
         await db.commit()
 
@@ -348,12 +532,13 @@ class BillingPulseAgent(BaseAgent):
             if not clinic_obj:
                 return {"error": "Clinic not found"}
 
-            today_d = date.today()
-            start_of_today = datetime.combine(today_d, datetime.min.time()).replace(tzinfo=timezone.utc)
+            start_of_today = parse_ist_date(get_today_ist_date_str())
+            end_of_today = start_of_today + timedelta(days=1)
             invoices_res = await db.execute(
                 select(Invoice).where(
                     Invoice.clinic_id == clinic_obj.id,
-                    Invoice.created_at >= start_of_today
+                    Invoice.created_at >= start_of_today,
+                    Invoice.created_at < end_of_today
                 )
             )
             invoices = invoices_res.scalars().all()

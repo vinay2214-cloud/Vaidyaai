@@ -84,8 +84,8 @@ def _generate_prescription_pdf_sync(
     clinic_name = clinic_info.get("name", "VaidyaAI Medical Clinic")
     doctor_name = clinic_info.get("doctor_name", "Dr. Doctor")
     speciality = clinic_info.get("speciality", "General Medicine")
-    phone = clinic_info.get("phone", "+91-9876543210")
-    location = clinic_info.get("location", "Tirupati, AP")
+    phone = clinic_info.get("phone", "N/A")
+    location = clinic_info.get("location", "N/A")
 
     elements.append(Paragraph(clinic_name, title_style))
     elements.append(Paragraph(f"{doctor_name} — <font color='#64748b'>{speciality}</font>", doctor_style))

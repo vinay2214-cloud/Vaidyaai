@@ -1,15 +1,27 @@
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from api.auth import get_current_user, verify_clinic_access
 from database.firestore import query_documents, get_document
 from utils.evidence_export import export_clinic_evidence, generate_evidence_package
+from utils.date_utils import get_today_ist_date_str, parse_ist_date
 from agents.insight_engine import InsightEngineAgent
 
 logger = logging.getLogger("vaidyaai.api.analytics")
 router = APIRouter()
 
 insight_agent = InsightEngineAgent()
+
+
+def _created_within_ist_day(doc: dict, day_start_utc: datetime, day_end_utc: datetime) -> bool:
+    """True if doc['created_at'] falls within the IST day expressed as UTC bounds."""
+    ca = doc.get("created_at")
+    if not isinstance(ca, datetime):
+        return False
+    if ca.tzinfo is None:
+        ca = ca.replace(tzinfo=timezone.utc)
+    return day_start_utc <= ca < day_end_utc
 
 
 @router.get("/analytics/dashboard", tags=["analytics"])
@@ -23,9 +35,17 @@ async def get_analytics_dashboard(
     """
     verify_clinic_access(clinic_id, current_user)
 
+    today_str = get_today_ist_date_str()
+    day_start_utc = parse_ist_date(today_str)
+    day_end_utc = day_start_utc + timedelta(days=1)
+
     appointments = await query_documents("appointments", [("clinic_id", "==", clinic_id)], limit=100)
     consultations = await query_documents("consultations", [("clinic_id", "==", clinic_id)], limit=100)
     agent_logs = await query_documents("agent_logs", [("clinic_id", "==", clinic_id)], limit=100)
+
+    appointments = [a for a in appointments if a.get("slot_date") == today_str]
+    consultations = [c for c in consultations if _created_within_ist_day(c, day_start_utc, day_end_utc)]
+    agent_logs = [l for l in agent_logs if _created_within_ist_day(l, day_start_utc, day_end_utc)]
 
     total_appts = len(appointments)
     completed_consults = len([c for c in consultations if c.get("status") == "approved"])
@@ -33,16 +53,24 @@ async def get_analytics_dashboard(
     
     # Calculate average AI response latency
     latencies = [l.get("latency_ms") for l in agent_logs if l.get("latency_ms") is not None]
-    avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 850.0
+    avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 0
+
+    if total_appts > 0:
+        completion_rate = completed_consults / total_appts
+        no_show_rate = no_shows / total_appts
+        health_score = round(completion_rate * 70 + (1 - no_show_rate) * 30)
+        health_score = max(0, min(100, health_score))
+    else:
+        health_score = 0
 
     return {
         "clinic_id": clinic_id,
-        "health_score": 94,
+        "health_score": health_score,
         "metrics": {
-            "total_appointments": total_appts or 24,
-            "completed_consultations": completed_consults or 18,
-            "no_show_count": no_shows or 2,
-            "completion_rate_pct": round((completed_consults / total_appts * 100), 1) if total_appts > 0 else 90.0,
+            "total_appointments": total_appts,
+            "completed_consultations": completed_consults,
+            "no_show_count": no_shows,
+            "completion_rate_pct": round((completed_consults / total_appts * 100), 1) if total_appts > 0 else 0.0,
             "avg_ai_latency_ms": avg_latency,
             "agent_decisions_count": len(agent_logs)
         }

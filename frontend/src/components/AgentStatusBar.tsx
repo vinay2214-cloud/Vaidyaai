@@ -26,7 +26,7 @@ export function AgentStatusBar({
   const lastDecision = logs.length > 0 ? logs[0] : null;
   const lastDecisionText = lastDecision
     ? `${lastDecision.agent_name}: ${lastDecision.decision_type}`
-    : "AppointmentFlow: slot_offered";
+    : "No agent activity recorded yet";
 
   const agents = [
     { id: "appointment_flow", label: "Agent 1: AppointmentFlow" },
@@ -88,7 +88,7 @@ export function AgentStatusBar({
           <span className="text-slate-600">|</span>
 
           <span className="text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 text-[11px]">
-            7/7 agents running
+            7 agents deployed
           </span>
         </div>
 
@@ -104,7 +104,7 @@ export function AgentStatusBar({
           <div className="flex items-center gap-1.5 shrink-0">
             <Activity className="w-3 h-3 text-blue-400" />
             <span className="text-slate-500">Decisions today:</span>
-            <span className="text-teal-400 font-bold font-mono">{totalDecisionsToday || 12}</span>
+            <span className="text-teal-400 font-bold font-mono">{totalDecisionsToday}</span>
           </div>
         </div>
       </div>

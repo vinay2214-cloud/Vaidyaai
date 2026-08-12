@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "firebase/auth";
-import { firebaseAuth } from "@/lib/firebase";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { setSessionCookie, isDevAuthBypassEnabled, DEV_CLINIC_DATA } from "@/lib/auth";
 import { useClinicStore } from "@/store/clinicStore";
 import { Activity, Phone, ArrowRight, ShieldCheck } from "lucide-react";
@@ -20,7 +20,9 @@ export default function LoginPage() {
 
   const setupRecaptcha = () => {
     if (!(window as any).recaptchaVerifier) {
-      (window as any).recaptchaVerifier = new RecaptchaVerifier(firebaseAuth, "recaptcha-container", {
+      const auth = getFirebaseAuth();
+      if (!auth) return;
+      (window as any).recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
         size: "invisible",
         callback: () => {}
       });
@@ -59,7 +61,9 @@ export default function LoginPage() {
       const appVerifier = (window as any).recaptchaVerifier;
       const formattedPhone = phoneNumber.startsWith("+") ? phoneNumber : `+91${phoneNumber.replace(/\D/g, "")}`;
       
-      const result = await signInWithPhoneNumber(firebaseAuth, formattedPhone, appVerifier);
+      const auth = getFirebaseAuth();
+      if (!auth) throw new Error("Firebase Auth not initialized");
+      const result = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
       setConfirmationResult(result);
       setStep("otp");
     } catch (err: any) {

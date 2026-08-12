@@ -2,13 +2,17 @@ import logging
 import asyncio
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
+from config import settings
 
 logger = logging.getLogger("vaidyaai.utils.agent_logger")
 
 try:
-    import google.cloud.logging
-    cloud_client = google.cloud.logging.Client()
-    gcp_logger = cloud_client.logger("vaidyaai-agents")
+    if settings.is_development:
+        gcp_logger = None
+    else:
+        import google.cloud.logging
+        cloud_client = google.cloud.logging.Client()
+        gcp_logger = cloud_client.logger("vaidyaai-agents")
 except Exception as e:
     logger.debug(f"Google Cloud Logging client not active: {e}")
     gcp_logger = None
@@ -34,7 +38,7 @@ class AgentLogger:
         clinic_id: str,
         input_summary: str = "",
         output_summary: str = "",
-        model_used: str = "gemini-1.5-flash",
+        model_used: str = settings.GEMINI_FAST_MODEL,
         latency_ms: int = 0,
         patient_phone_masked: Optional[str] = None,
         appointment_id: Optional[str] = None,

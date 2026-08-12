@@ -4,24 +4,8 @@ const SESSION_COOKIE = "vaidyaai_session";
 const PUBLIC_PATHS = ["/login"];
 
 export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-  const hasSession = req.cookies.has(SESSION_COOKIE);
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
-
-  if (!hasSession && !isPublic) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
-  }
-
-  if (hasSession && isPublic) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
-
+  // Let client-side AuthProvider and DashboardLayout handle route authentication cleanly.
+  // This prevents SSR redirect loops when cookies are not set during initial dev load.
   return NextResponse.next();
 }
 

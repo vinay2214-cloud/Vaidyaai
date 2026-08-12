@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
+import api from "@/lib/api";
 import { useAppointmentsToday } from "@/hooks/useAppointmentsToday";
 import { useClinicStore } from "@/store/clinicStore";
 import {
@@ -94,7 +95,19 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         title: appt.patient_name || "Patient",
         subtitle: `${appt.patient_phone_masked} • ${appt.complaint_summary || "Consultation"}`,
         icon: <User className="w-4 h-4" />,
-        href: `/consultation/${appt.appointment_id}?appointment_id=${appt.appointment_id}`,
+        onClick: async () => {
+          if (!clinicId) return;
+          try {
+            const res = await api.post("/consultations/start", {
+              clinic_id: clinicId,
+              appointment_id: appt.appointment_id,
+            });
+            const consId = res.data.consultation_id;
+            router.push(`/consultation/${consId}?appointment_id=${appt.appointment_id}`);
+          } catch (e) {
+            console.error("Failed to start consultation from search:", e);
+          }
+        },
       });
     });
 
@@ -105,7 +118,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         item.subtitle.toLowerCase().includes(q) ||
         item.type.toLowerCase().includes(q)
     );
-  }, [query, appointments, clinicId]);
+  }, [query, appointments, clinicId, router]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

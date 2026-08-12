@@ -22,11 +22,13 @@ import { AuditCard } from "@/components/patient-detail/AuditCard";
 import { QuickActionsBar } from "@/components/patient-detail/QuickActionsBar";
 import { PatientSidebar } from "@/components/patient-detail/PatientSidebar";
 import { useToast } from "@/components/design-system";
+import { useAgentLogs } from "@/hooks/useAgentLogs";
 
 export default function LongitudinalPatientRecordPage() {
   const params = useParams();
   const patientId = (params?.id as string) || "pat_demo";
   const clinicId = useClinicStore((state) => state.clinicId);
+  const { logs } = useAgentLogs();
 
   const [loading, setLoading] = useState(true);
   const [patientData, setPatientData] = useState<any>(null);
@@ -60,257 +62,169 @@ export default function LongitudinalPatientRecordPage() {
     loadData();
   }, [patientId, clinicId]);
 
-  // Enriched patient data from backend API with fallbacks
+  // Enriched patient data from backend API with honest clinical states (no fabricated data)
   const patientHeader: LongitudinalPatientHeader = {
     patient_id: patientId,
-    name: patientData?.name || "Ramesh Sharma",
-    patient_phone_masked: patientData?.patient_phone_masked || "+91XXXXXX3210",
-    age: patientData?.age || 42,
-    gender: patientData?.gender || "M",
-    blood_group: patientData?.blood_group || "B+",
-    city: patientData?.city || "Mumbai, MH",
-    dob: patientData?.dob || "14-Aug-1984",
-    registration_date: patientData?.registration_date || "21-Jul-2026",
-    status_badge: patientData?.status_badge || "HIGH RISK",
-    risk_level: patientData?.risk_level || "HIGH",
-    consent_status: patientData?.consent_status || "granted",
-    whatsapp_verified: true,
-    allergies: patientData?.allergies || ["Penicillin"],
-    chronic_diseases: patientData?.chronic_diseases || ["Type-2 Diabetes Mellitus", "Essential Hypertension"]
+    name: patientData?.name || "Patient Record",
+    patient_phone_masked: patientData?.patient_phone_masked || patientData?.phone || "XXXX",
+    age: patientData?.age ?? (patientData?.age === 0 ? 0 : "Not Recorded"),
+    gender: patientData?.gender || "Not Recorded",
+    blood_group: patientData?.blood_group || "Not Recorded",
+    city: patientData?.city || "Registered Clinic Patient",
+    dob: patientData?.dob || "Not Documented",
+    registration_date: patientData?.created_at ? new Date(patientData.created_at).toLocaleDateString("en-IN", { day: '2-digit', month: 'short', year: 'numeric' }) : "Recent",
+    status_badge: patientData?.allergies?.length
+      ? "ALLERGY ALERT"
+      : (patientData?.visit_count > 1 || (Array.isArray(timelineData) && timelineData.length > 1)
+      ? "RETURNING PATIENT"
+      : "NEEDS ASSESSMENT"),
+    risk_level: patientData?.allergies?.length
+      ? "HIGH"
+      : (patientData?.chronic_conditions?.length
+      ? "MEDIUM"
+      : "LOW"),
+    consent_status: patientData?.consent_given ? "granted" : "pending",
+    whatsapp_verified: Boolean(patientData?.phone),
+    allergies: Array.isArray(patientData?.allergies) ? patientData.allergies : [],
+    chronic_diseases: Array.isArray(patientData?.chronic_conditions) ? patientData.chronic_conditions : []
   };
 
+  const rawConsultations = Array.isArray(timelineData) ? timelineData : (timelineData as any)?.consultations || [];
+  const latestCons = rawConsultations.length > 0 ? rawConsultations[rawConsultations.length - 1] : null;
+  const rawAppts = (timelineData as any)?.appointments || [];
+  const rawReferrals = (timelineData as any)?.referrals || [];
+
   const overview: LongitudinalOverview = {
-    last_visit: "25-Jul-2026 (Today)",
-    primary_physician: "Dr. Vinay Sharma, MD",
-    visit_count: 6,
-    active_problems: ["Type-2 Diabetes (E11.9)", "Essential Hypertension (I10)", "Persistent Dry Cough"],
-    current_medications_count: 3,
-    upcoming_followup: "10-Aug-2026 (16 days)",
-    active_referrals_count: 1,
+    last_visit: patientData?.updated_at ? new Date(patientData.updated_at).toLocaleDateString("en-IN") : "Recent Consultation",
+    primary_physician: "Attending Medical Officer",
+    visit_count: (timelineData as any)?.total_visits || rawAppts.length || patientData?.visit_count || 1,
+    active_problems: Array.isArray(patientData?.chronic_conditions) && patientData.chronic_conditions.length > 0
+      ? patientData.chronic_conditions
+      : ["No chronic medical conditions documented"],
+    current_medications_count: latestCons?.medications?.length || 0,
+    upcoming_followup: latestCons?.followup_days ? `Follow-up in ${latestCons.followup_days} days` : "Routine review",
+    active_referrals_count: rawReferrals.length,
     outstanding_bills_rupees: 0
   };
 
   const aiSummary: AISummaryContent = {
-    generated_at: "Today, 09:30 AM IST",
-    patient_overview: "42-year-old male with 2-year history of Type-2 Diabetes Mellitus and Essential Hypertension presenting for quarterly review.",
-    clinical_history: "HbA1c stable at 7.2%. Blood Pressure 134/86 mmHg. Reports mild fatigue and persistent nocturnal dry cough for 4 days.",
-    risk_assessment: "Moderate-High Cardiovascular & Nephropathy risk. High compliance with Metformin, but blood pressure elevated above target 130/80.",
-    care_gaps: ["Ophthalmology Diabetic Retinopathy annual screening overdue by 60 days.", "Urinary Microalbumin/Creatinine Ratio lab pending."],
-    missed_followups: ["Missed 30-day follow-up appointment on June 12."],
+    generated_at: latestCons?.created_at ? new Date(latestCons.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Active Record",
+    patient_overview: patientData?.name ? `${patientData.name} — Registered Outpatient Record (${patientHeader.age}Y, ${patientHeader.gender}).` : "Outpatient clinical record under active care.",
+    clinical_history: patientData?.chronic_conditions?.length ? `Documented history: ${patientData.chronic_conditions.join(', ')}.` : "No chronic medical history documented.",
+    risk_assessment: patientData?.allergies?.length ? `Documented drug/food allergies: ${patientData.allergies.join(', ')}.` : "No critical allergy alerts recorded.",
+    care_gaps: patientData?.allergies?.length === 0 ? ["Allergy assessment not yet finalized."] : [],
+    missed_followups: [],
     recommended_next_steps: [
-      "Add Telmisartan 40mg once daily for BP control.",
-      "Order Renal Function Test & Microalbumin lab panel.",
-      "Schedule Cardiology & Retinal Specialist Consultation."
+      "Review longitudinal consultation notes",
+      "Verify latest structured vitals",
+      "Confirm ongoing medications and allergies"
     ],
-    important_observations: [
-      "Known Penicillin allergy — avoid Amoxicillin formulation.",
-      "RetentionRadar outreach successfully recovered patient after June 12 missed visit."
-    ]
+    important_observations: patientData?.allergies?.length ? [`Known allergy alert: ${patientData.allergies.join(', ')}.`] : ["No critical clinical alerts."],
+    provenance: {
+      source: "patient_record",
+      generated_by: "system",
+      model: null,
+      execution_id: null,
+      created_at: latestCons?.created_at ? new Date(latestCons.created_at).toLocaleString() : undefined,
+      evidence: "Compiled from patient registration, consultation and allergy fields.",
+      status: "deterministic"
+    }
   };
 
+  const latestVitals = latestCons?.vitals || {};
   const soapData: SOAPNoteData = {
-    subjective: "Patient reports 4-day history of dry cough and mild fever. No shortness of breath. History of Type-2 Diabetes.",
-    objective: "BP: 134/86 mmHg, Pulse: 78 bpm, Temp: 99.1°F, SpO2: 98% on room air. Chest clear bilaterally.",
-    assessment: "1. Type-2 Diabetes Mellitus (E11.9) - Fair control. 2. Mild Upper Respiratory Infection. 3. Essential Hypertension (I10).",
-    plan: "1. Metformin 500mg BD. 2. Telmisartan 40mg OD. 3. Paracetamol 650mg TDS PRN. 4. Follow-up in 14 days.",
-    diagnoses: [
-      { code: "E11.9", description: "Type-2 Diabetes Mellitus", confidence: 0.98 },
-      { code: "I10", description: "Essential Hypertension", confidence: 0.95 }
-    ],
-    clinician: "Dr. Vinay Sharma",
-    generated_at: "25-Jul-2026"
+    subjective: latestCons?.soap_note?.subjective || latestCons?.complaint_summary || "No active consultation notes recorded yet.",
+    objective: latestCons?.soap_note?.objective || (latestVitals.bp ? `BP: ${latestVitals.bp} mmHg, Pulse: ${latestVitals.pulse || '--'} bpm, Temp: ${latestVitals.temp || '--'}°F` : "Physical examination and vitals pending."),
+    assessment: latestCons?.soap_note?.assessment || "Clinical assessment pending.",
+    plan: latestCons?.soap_note?.plan || "Treatment plan pending consultation review.",
+    diagnoses: latestCons?.diagnoses || [],
+    clinician: "Attending Clinician",
+    generated_at: latestCons?.created_at ? new Date(latestCons.created_at).toLocaleDateString() : "Recent"
   };
 
   const vitals: VitalsData = {
-    bp_sys: 134,
-    bp_dia: 86,
-    pulse: 78,
-    temperature: 99.1,
-    spo2: 98,
-    resp_rate: 16,
-    weight_kg: 74.5,
-    height_cm: 172,
-    bmi: 25.2,
-    recorded_at: "Today, 10:15 AM"
+    bp_sys: parseInt(latestVitals.bp?.split("/")[0]) || 0,
+    bp_dia: parseInt(latestVitals.bp?.split("/")[1]) || 0,
+    pulse: parseInt(latestVitals.pulse) || 0,
+    temperature: parseFloat(latestVitals.temp) || 0,
+    spo2: parseInt(latestVitals.spo2) || 0,
+    resp_rate: parseInt(latestVitals.resp_rate) || 0,
+    weight_kg: parseFloat(latestVitals.weight) || 0,
+    height_cm: 0,
+    bmi: 0,
+    recorded_at: latestCons?.created_at ? new Date(latestCons.created_at).toLocaleTimeString() : "Pending Entry"
   };
 
-  const medications: MedicationItem[] = [
-    {
-      drug_name: "Metformin Hydrochloride",
-      dosage: "500 mg",
-      frequency: "Twice daily after meals (1-0-1)",
-      duration: "90 days",
-      instructions: "Take with meals to prevent GI upset.",
-      prescribed_by: "Dr. Vinay Sharma",
-      is_active: true
-    },
-    {
-      drug_name: "Telmisartan",
-      dosage: "40 mg",
-      frequency: "Once daily morning (1-0-0)",
-      duration: "30 days",
-      instructions: "Monitor blood pressure weekly.",
-      prescribed_by: "Dr. Vinay Sharma",
-      is_active: true
-    },
-    {
-      drug_name: "Paracetamol",
-      dosage: "650 mg",
-      frequency: "As needed for fever (PRN)",
-      duration: "5 days",
-      instructions: "Do not exceed 3 grams daily.",
-      prescribed_by: "Dr. Vinay Sharma",
-      is_active: true
-    }
-  ];
+  const medications: MedicationItem[] = (latestCons?.medications || []).map((m: any) => ({
+    drug_name: m.drug_name || "Medication",
+    dosage: m.dosage || "--",
+    frequency: m.frequency || "--",
+    duration: m.duration || "--",
+    instructions: m.instructions || "--",
+    prescribed_by: "Attending Clinician",
+    is_active: true
+  }));
 
-  const labs: LabItem[] = [
-    {
-      test_name: "HbA1c Glycated Hemoglobin",
-      category: "Endocrinology",
-      ordered_date: "20-Jul-2026",
-      status: "completed",
-      result_value: "7.2%",
-      normal_range: "< 6.5%"
-    },
-    {
-      test_name: "Renal Function Test (RFT)",
-      category: "Nephrology",
-      ordered_date: "25-Jul-2026",
-      status: "pending"
-    }
-  ];
+  const labs: LabItem[] = (latestCons?.investigations || []).map((inv: string) => ({
+    test_name: inv,
+    category: "Diagnostics",
+    ordered_date: latestCons?.created_at ? new Date(latestCons.created_at).toLocaleDateString() : "Today",
+    status: "pending" as const
+  }));
 
-  const referrals: ReferralItem[] = [
-    {
-      id: "ref_1",
-      speciality: "Cardiology",
-      target_doctor: "Dr. Mehta, MD (Cardiology)",
-      reason: "Hypertension evaluation & ECG screening",
-      urgency: "Routine",
-      status: "pending",
-      created_at: "25-Jul-2026"
-    }
-  ];
+  const referrals: ReferralItem[] = rawReferrals.map((r: any, idx: number) => ({
+    id: r.referral_id || `ref_${idx}`,
+    speciality: r.speciality || "Specialist",
+    target_doctor: r.speciality ? `${r.speciality} Specialist` : "Consultant",
+    reason: r.reason_for_referral || r.clinical_summary || "Specialist evaluation",
+    urgency: r.urgency || "Routine",
+    status: r.status || "pending",
+    created_at: r.created_at ? new Date(r.created_at).toLocaleDateString() : "Recent"
+  }));
 
-  const retentionHistory: RetentionOutreachItem[] = [
-    {
-      id: "ret_1",
-      campaign_name: "30-Day Diabetes Follow-up Recovery",
-      sent_date: "24-Jul-2026",
-      channel: "WhatsApp Agent 4",
-      response_status: "Booked Appointment",
-      next_scheduled_outreach: "10-Aug-2026"
-    }
-  ];
+  const retentionHistory: RetentionOutreachItem[] = [];
 
-  const documents: ClinicalDocument[] = [
+  const documents: ClinicalDocument[] = latestCons?.consultation_id ? [
     {
-      id: "doc_1",
-      name: "SOAP_Consultation_20260725.pdf",
-      type: "SOAP PDF",
-      date: "25-Jul-2026",
-      size: "245 KB"
-    },
-    {
-      id: "doc_2",
-      name: "Prescription_Rx_VDY-9021.pdf",
+      id: `doc_${latestCons.consultation_id}`,
+      name: `Prescription_${latestCons.consultation_id}.pdf`,
       type: "Prescription Rx",
-      date: "25-Jul-2026",
-      size: "180 KB"
-    },
-    {
-      id: "doc_3",
-      name: "Cardiology_Referral_Letter.pdf",
-      type: "Referral Letter",
-      date: "25-Jul-2026",
-      size: "195 KB"
-    },
-    {
-      id: "doc_4",
-      name: "Invoice_VDY-20260725-0012.pdf",
-      type: "Invoice PDF",
-      date: "25-Jul-2026",
-      size: "120 KB"
+      date: latestCons.created_at ? new Date(latestCons.created_at).toLocaleDateString() : "Recent",
+      size: "PDF"
     }
-  ];
+  ] : [];
 
-  const timelineItems: LongitudinalTimelineItem[] = [
-    {
-      id: "tl_1",
-      type: "consultation",
-      date: "25-Jul-2026",
-      title: "Quarterly Diabetes & Hypertension Consultation",
-      summary: "Evaluated BP (134/86) and dry cough. Adjusted BP therapy with Telmisartan 40mg.",
-      clinician: "Dr. Vinay Sharma",
-      agents_involved: ["ClinicalScribe", "PrescriptionSafe", "BillingPulse"],
-      status_variant: "completed",
-      status_label: "Completed",
-      details: {
-        vitals: "134/86 mmHg, 78 bpm, 99.1°F",
-        diagnoses: "E11.9 (Type-2 Diabetes), I10 (Hypertension)",
-        fee_paid: "₹500 (UPI Paid via Razorpay)"
-      }
-    },
-    {
-      id: "tl_2",
-      type: "prescription",
-      date: "25-Jul-2026",
-      title: "Prescription Rx Generated & Safety Audited",
-      summary: "Prescribed Metformin 500mg BD + Telmisartan 40mg OD. 0 Critical drug conflicts detected.",
-      clinician: "Dr. Vinay Sharma",
-      agents_involved: ["PrescriptionSafe"],
-      status_variant: "success",
-      status_label: "Rx Audited",
-      details: {
-        safety_score: "100% (No Penicillin conflict in Rx)",
-        interaction_warnings: "None"
-      }
-    },
-    {
-      id: "tl_3",
-      type: "retention",
-      date: "24-Jul-2026",
-      title: "RetentionRadar WhatsApp Outreach",
-      summary: "Automated WhatsApp outreach sent for missed follow-up. Patient replied and booked July 25 slot.",
-      clinician: "Agent 4 (RetentionRadar)",
-      agents_involved: ["RetentionRadar", "AppointmentFlow"],
-      status_variant: "info",
-      status_label: "Recovered Patient",
-      details: {
-        channel: "WhatsApp Cloud API",
-        language: "English / Hindi",
-        outcome: "Appointment Booked"
-      }
+  const timelineItems: LongitudinalTimelineItem[] = rawConsultations.map((c: any, idx: number) => ({
+    id: c.consultation_id || `tl_${idx}`,
+    type: "consultation" as const,
+    date: c.created_at ? new Date(c.created_at).toLocaleDateString() : "Recent",
+    title: c.complaint_summary || "Clinical Consultation",
+    summary: c.soap_note?.assessment || "Outpatient encounter documented.",
+    clinician: "Attending Clinician",
+    agents_involved: ["ClinicalScribe", "PrescriptionSafe", "BillingPulse"],
+    status_variant: c.status === "approved" ? ("completed" as const) : ("info" as const),
+    status_label: c.status === "approved" ? "Approved" : "Documented",
+    details: {
+      vitals: c.vitals?.bp ? `BP: ${c.vitals.bp}, HR: ${c.vitals.pulse}` : "Not recorded",
+      diagnoses: c.diagnoses?.map((d: any) => d.description || d.code).join(", ") || "None recorded",
+      fee_paid: "Standard Consultation"
     }
-  ];
+  }));
 
-  const auditLogs = [
-    {
-      id: "aud_1",
-      agent_name: "ClinicalScribe",
-      decision_type: "soap_generated",
-      decision_made: "Diarized 4-minute consultation audio into structured SOAP note & ICD-10 codes.",
-      clinic_id: clinicId || "clinic_1",
-      model_used: "gemini-1.5-pro",
-      latency_ms: 1450,
-      patient_phone_masked: "+91XXXXXX3210",
-      success: true,
-      created_at: "Today, 10:20 AM"
-    },
-    {
-      id: "aud_2",
-      agent_name: "PrescriptionSafe",
-      decision_type: "rx_safety_audited",
-      decision_made: "Audited Metformin 500mg + Telmisartan 40mg. Confirmed 0 drug-drug & allergy conflicts.",
-      clinic_id: clinicId || "clinic_1",
-      model_used: "gemini-1.5-flash",
-      latency_ms: 290,
-      patient_phone_masked: "+91XXXXXX3210",
-      success: true,
-      created_at: "Today, 10:22 AM"
-    }
-  ];
+  const auditLogs = logs
+    .filter((log) => !patientId || log.patient_id === patientId || log.consultation_id?.includes(patientId))
+    .map((log, index) => ({
+      id: log.id || `aud_live_${index}`,
+      agent_name: log.agent_name,
+      decision_type: log.decision_type,
+      decision_made: log.decision_made,
+      clinic_id: log.clinic_id,
+      model_used: log.model_used || "—",
+      latency_ms: log.latency_ms || 0,
+      patient_phone_masked: log.patient_phone_masked || patientHeader.patient_phone_masked,
+      success: log.success !== false,
+      created_at: log.created_at
+    }));
 
   useEffect(() => {
     setLoading(false);
@@ -332,7 +246,7 @@ export default function LongitudinalPatientRecordPage() {
       {/* SECTION 13: Sticky Quick Actions Bar */}
       <QuickActionsBar
         patientId={patientId}
-        onGenerateSummary={() => toast("AI Summary re-generated by Agent 6 (InsightEngine)", "info")}
+        onGenerateSummary={() => toast("Patient summary refreshed (deterministic compile from records).", "info")}
         onSendFollowup={() => toast("Follow-up outreach triggered via Agent 4 (RetentionRadar)", "info")}
       />
 

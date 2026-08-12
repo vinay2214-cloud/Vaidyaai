@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/firestore";
-import { firestore } from "../lib/firebase";
+import { getFirestoreDb } from "../lib/firebase";
 import { useClinicStore } from "../store/clinicStore";
 
 export interface AgentLog {
@@ -16,6 +16,8 @@ export interface AgentLog {
   patient_phone_masked?: string;
   success?: boolean;
   created_at?: any;
+  patient_id?: string;
+  consultation_id?: string;
 }
 
 export function useAgentLogs(filterAgent?: string | null) {
@@ -29,8 +31,15 @@ export function useAgentLogs(filterAgent?: string | null) {
       return;
     }
 
+    const db = getFirestoreDb();
+    if (!db) {
+      console.warn("[useAgentLogs] Firestore not initialized.");
+      setLoading(false);
+      return;
+    }
+
     let q = query(
-      collection(firestore, "agent_logs"),
+      collection(db, "agent_logs"),
       where("clinic_id", "==", clinicId),
       orderBy("created_at", "desc"),
       limit(50)
@@ -53,7 +62,9 @@ export function useAgentLogs(filterAgent?: string | null) {
             latency_ms: d.latency_ms,
             patient_phone_masked: d.patient_phone_masked,
             success: d.success !== false,
-            created_at: d.created_at
+            created_at: d.created_at,
+            patient_id: d.patient_id,
+            consultation_id: d.consultation_id
           });
         }
       });
@@ -68,4 +79,68 @@ export function useAgentLogs(filterAgent?: string | null) {
   }, [clinicId, filterAgent]);
 
   return { logs, loading };
+}
+
+export interface AgentHealthItem {
+  id: string;
+  name: string;
+  role: string;
+  model: string;
+  status: "Healthy" | "Running" | "Idle" | "Completed" | "Failed";
+  tasks_today: number;
+  avg_latency_ms: number;
+  success_rate_pct: number;
+  last_run_at: string | null;
+  failures_today: number;
+  last_decision: string | null;
+}
+
+export interface AgentHealthResponse {
+  clinic_id: string;
+  platform: {
+    active_agents: number;
+    total_agents: number;
+    total_tasks_today: number;
+    total_failures_today: number;
+    avg_latency_ms: number;
+    health_pct: number;
+  };
+  agents: AgentHealthItem[];
+}
+
+export function useAgentHealth() {
+  const clinicId = useClinicStore((state) => state.clinicId);
+  const [healthData, setHealthData] = useState<AgentHealthResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!clinicId) {
+      setLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchHealth = async () => {
+      try {
+        const { default: api } = await import("@/lib/api");
+        const res = await api.get(`/agents/health?clinic_id=${clinicId}`);
+        if (isMounted) {
+          setHealthData(res.data);
+        }
+      } catch (e) {
+        console.warn("Failed to fetch agent health:", e);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 8000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [clinicId]);
+
+  return { healthData, loading };
 }

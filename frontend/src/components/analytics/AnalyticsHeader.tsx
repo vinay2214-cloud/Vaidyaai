@@ -28,7 +28,7 @@ export const AnalyticsHeader: React.FC<AnalyticsHeaderProps> = ({
             <h2 className="text-lg font-bold text-white">Practice Intelligence Center</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Executive Cockpit Managed by Agent 6 (InsightEngine) • Gemini 1.5 Pro Intelligence
+            Executive Cockpit Managed by Agent 6 (InsightEngine) • Gemini 2.5 Intelligence
           </p>
         </div>
 

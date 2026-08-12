@@ -18,8 +18,8 @@ def test_generate_raises_when_unavailable_in_production(monkeypatch):
     from config import settings
 
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_VERTEXAI", False)
     svc = GeminiService()
-    svc.models = {}  # simulate no configured model
 
     with pytest.raises(RuntimeError):
         _run(svc.generate("any prompt"))
@@ -29,6 +29,9 @@ def test_generate_uses_mock_in_development(monkeypatch):
     from config import settings
 
     monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    monkeypatch.setattr(settings, "LIVE_CLINICAL_AI", False)
+    monkeypatch.setattr(settings, "AI_ALLOW_MOCK_FALLBACK", True)
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_VERTEXAI", False)
     svc = GeminiService()
     svc.models = {}  # simulate no configured model
 

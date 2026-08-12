@@ -41,6 +41,10 @@ export function getFirebaseApp(): FirebaseApp | null {
 /**
  * Returns Auth instance ONLY on client-side.
  * Returns null during SSG / SSR build prerendering.
+ *
+ * IMPORTANT: This returns a genuine Auth instance, not a Proxy.
+ * Firebase Modular SDK v9+ functions (onAuthStateChanged, signInWithPhoneNumber)
+ * perform internal instanceof checks. A Proxy wrapper fails these checks.
  */
 export function getFirebaseAuth(): Auth | null {
   if (typeof window === "undefined") {
@@ -68,6 +72,10 @@ export function getFirebaseAuth(): Auth | null {
 /**
  * Returns Firestore instance ONLY on client-side.
  * Returns null during SSG / SSR build prerendering.
+ *
+ * IMPORTANT: This returns a genuine Firestore instance, not a Proxy.
+ * Firebase Modular SDK v9+ functions (doc, collection, getDoc, onSnapshot)
+ * perform internal instanceof checks. A Proxy wrapper fails these checks.
  */
 export function getFirestoreDb(): Firestore | null {
   if (typeof window === "undefined") {
@@ -94,32 +102,18 @@ export function getFirestoreDb(): Firestore | null {
 }
 
 /**
- * Side-effect-free Proxies for backwards compatibility with existing imports.
- * Accessing properties on firebaseAuth or firestore lazily invokes getFirebaseAuth() / getFirestoreDb().
- * On the server side (typeof window === 'undefined'), returns undefined to ensure ZERO Firebase SDK calls occur during SSG.
+ * DEPRECATED convenience aliases.
+ *
+ * These exist solely for backwards-compatible import syntax:
+ *   import { firebaseAuth, firestore } from "../lib/firebase";
+ *
+ * They are evaluated at module load time. During SSR (typeof window === "undefined")
+ * they will be null. During client-side hydration they will be genuine instances.
+ *
+ * All consumer code MUST guard against null by calling getFirebaseAuth() / getFirestoreDb()
+ * at the point of use instead of relying on these module-level values.
  */
-export const firebaseAuth = new Proxy({} as Auth, {
-  get(_target, prop, receiver) {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-    const instance = getFirebaseAuth();
-    if (!instance) return undefined;
-    const value = Reflect.get(instance, prop, receiver);
-    return typeof value === "function" ? value.bind(instance) : value;
-  }
-});
-
-export const firestore = new Proxy({} as Firestore, {
-  get(_target, prop, receiver) {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-    const instance = getFirestoreDb();
-    if (!instance) return undefined;
-    const value = Reflect.get(instance, prop, receiver);
-    return typeof value === "function" ? value.bind(instance) : value;
-  }
-});
+export const firebaseAuth = (typeof window !== "undefined" ? getFirebaseAuth() : null) as Auth;
+export const firestore = (typeof window !== "undefined" ? getFirestoreDb() : null) as Firestore;
 
 export default firebaseConfig;

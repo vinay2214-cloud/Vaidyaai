@@ -3,22 +3,21 @@
 import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { useClinicStore } from "@/store/clinicStore";
 import { AppShell } from "@/components/layout/AppShell";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { Activity } from "lucide-react";
+import { OnboardingWizard } from "@/components/OnboardingWizard";
+import { Activity, UserX } from "lucide-react";
 import { logout } from "@/lib/auth";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, error } = useAuth();
   const router = useRouter();
-  const clearClinic = useClinicStore((state) => state.clearClinic);
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !user && !error) {
       router.replace("/login");
     }
-  }, [loading, user, router]);
+  }, [loading, user, error, router]);
 
   if (loading || (!user && !error)) {
     return (
@@ -31,12 +30,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
+  if (error === "no_clinic") {
+    const isStaff = user?.email?.includes("staff") || false;
+
+    if (isStaff) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+              <UserX className="w-6 h-6" />
+            </div>
+            <h2 className="text-xl font-bold text-white">Pending Clinic Assignment</h2>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Your account has been authenticated, but you have not yet been assigned to an active clinic workspace. Please contact your healthcare administrator.
+            </p>
+            <button
+              onClick={() => logout()}
+              className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-colors"
+            >
+              Sign Out & Return to Login
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <OnboardingWizard onComplete={() => window.location.reload()} />
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <ErrorState
-          title="No Clinic Access"
-          description="Your account is not linked to an active clinic. Please contact your administrator to complete onboarding, then sign in again."
+          title="Authentication Exception"
+          description="Could not resolve clinic credentials. Please sign in again."
           onRetry={() => logout()}
         />
       </div>

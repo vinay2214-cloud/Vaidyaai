@@ -34,35 +34,48 @@ export const MedicationCard: React.FC<MedicationCardProps> = ({ medications, cla
         action={
           hasWarnings ? (
             <Badge variant="red" dot>Interaction Warning</Badge>
-          ) : (
+          ) : activeMeds.length > 0 ? (
             <Badge variant="green" dot>0 Critical Conflicts</Badge>
+          ) : (
+            <Badge variant="blue" dot>Pending Review</Badge>
           )
         }
       />
 
       <div className="mt-4 space-y-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-foreground-subtle block">Active Regimen ({activeMeds.length})</span>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-          {activeMeds.map((med, idx) => (
-            <div key={idx} className="panel p-3 bg-background-elevated/50 border border-border space-y-1.5 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-foreground text-sm">{med.drug_name}</span>
-                <Badge variant="green">{med.dosage}</Badge>
-              </div>
-              <p className="text-foreground-muted font-mono text-[11px]">
-                {med.frequency} • Duration: {med.duration}
-              </p>
-              <p className="text-foreground-subtle italic text-[11px]">&quot;{med.instructions}&quot;</p>
-
-              {med.interaction_warning && (
-                <div className="mt-1 panel p-2 bg-red-500/10 border border-red-500/30 text-red-300 text-[11px] flex items-start gap-1 font-mono">
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-                  <span>{med.interaction_warning}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-foreground-subtle block">
+          Active Regimen ({activeMeds.length})
+        </span>
+        {activeMeds.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {activeMeds.map((med, idx) => (
+              <div key={idx} className="panel p-3 bg-background-elevated/50 border border-border space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-foreground text-sm">{med.drug_name}</span>
+                  <Badge variant="green">{med.dosage}</Badge>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
+                <p className="text-foreground-muted font-mono text-[11px]">
+                  {med.frequency} • Duration: {med.duration}
+                </p>
+                <p className="text-foreground-subtle italic text-[11px]">&quot;{med.instructions}&quot;</p>
+
+                {med.interaction_warning && (
+                  <div className="mt-1 panel p-2 bg-red-500/10 border border-red-500/30 text-red-300 text-[11px] flex items-start gap-1 font-mono">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                    <span>{med.interaction_warning}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="panel p-4 bg-background-elevated/30 border border-dashed border-border text-center rounded-xl">
+            <p className="text-xs text-foreground-muted font-medium">No active medications documented</p>
+            <p className="text-[11px] text-foreground-subtle mt-0.5">
+              Medication history pending assessment or patient confirmed taking no home medications.
+            </p>
+          </div>
+        )}
       </div>
     </Panel>
   );

@@ -1,5 +1,5 @@
 import { signOut } from "firebase/auth";
-import { firebaseAuth } from "./firebase";
+import { getFirebaseAuth } from "./firebase";
 import { useClinicStore } from "../store/clinicStore";
 
 export const SESSION_COOKIE = "vaidyaai_session";
@@ -10,8 +10,9 @@ export const SESSION_COOKIE = "vaidyaai_session";
  */
 export const isDevAuthBypassEnabled = (): boolean => {
   const isDev = process.env.NODE_ENV !== "production";
+  const isLocalhost = typeof window !== "undefined" && window.location.hostname === "localhost";
   const flag = String(process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS || "").toLowerCase().trim();
-  return isDev && (flag === "true" || flag === "1" || flag === "yes");
+  return isDev && isLocalhost && (flag === "true" || flag === "1" || flag === "yes");
 };
 
 export const DEV_DOCTOR_USER = {
@@ -49,7 +50,8 @@ function cookieAttributes(): string {
 
 export function setSessionCookie() {
   if (typeof document === "undefined") return;
-  document.cookie = `${SESSION_COOKIE}=1${cookieAttributes()}`;
+  const maxAge = 60 * 60 * 24 * 7; // 7 days in seconds
+  document.cookie = `${SESSION_COOKIE}=1; Max-Age=${maxAge}${cookieAttributes()}`;
 }
 
 export function clearSessionCookie() {
@@ -60,7 +62,8 @@ export function clearSessionCookie() {
 export async function logout(redirectTo: string = "/login") {
   try {
     if (!isDevAuthBypassEnabled()) {
-      await signOut(firebaseAuth);
+      const auth = getFirebaseAuth();
+      if (auth) await signOut(auth);
     }
   } catch (e) {
     console.warn("Sign-out error:", e);

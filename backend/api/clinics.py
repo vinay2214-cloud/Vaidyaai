@@ -1,3 +1,4 @@
+import uuid
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
@@ -13,6 +14,12 @@ from models.clinic import Clinic, Subscription
 
 logger = logging.getLogger("vaidyaai.api.clinics")
 router = APIRouter()
+
+
+def _generate_clinic_id() -> str:
+    """Generate a globally unique, immutable clinic_id server-side.
+    Uses UUID4 hex for collision resistance; prefixed with 'cln_' for domain identity."""
+    return f"cln_{uuid.uuid4().hex}"
 
 
 class ClinicSetupRequest(BaseModel):
@@ -80,7 +87,25 @@ async def setup_new_clinic(
     """
     uid = current_user["uid"]
     now_utc = datetime.now(timezone.utc)
-    clinic_id = f"cln_{int(now_utc.timestamp())}"
+
+    # Prevent duplicate clinic creation: if user already has a clinic mapping, return it
+    try:
+        existing_mapping = await get_document("clinic_users", uid)
+        if existing_mapping and existing_mapping.get("clinic_id"):
+            existing_clinic_id = existing_mapping["clinic_id"]
+            existing_clinic_doc = await get_document("clinics", existing_clinic_id)
+            if existing_clinic_doc:
+                logger.info(f"User {uid} already has clinic '{existing_clinic_id}'. Returning existing clinic.")
+                return {
+                    "clinic_id": existing_clinic_id,
+                    "clinic_name": existing_clinic_doc.get("name", req.clinic_name),
+                    "doctor_name": existing_clinic_doc.get("doctor_name", req.doctor_name),
+                    "status": "existing"
+                }
+    except Exception as e:
+        logger.debug(f"Duplicate clinic check lookup warning for uid {uid}: {e}")
+
+    clinic_id = _generate_clinic_id()
 
     fees = req.consultation_fees or {
         "new_patient_paise": 30000,
@@ -192,6 +217,43 @@ async def setup_new_clinic(
     }
 
 
+@router.get("/clinics/settings", tags=["clinics"])
+async def get_clinic_settings(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    GET /api/v1/clinics/settings
+    Returns the authenticated doctor's clinic configuration (fees, identity, agents)
+    so the frontend can render truthful, configured values instead of hardcoded ones.
+    """
+    clinic_id = current_user.get("clinic_id")
+    if not clinic_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No clinic associated with this user account."
+        )
+
+    clinic_doc = await get_document("clinics", clinic_id) or {}
+    fees = clinic_doc.get("consultation_fees", {}) or {}
+
+    # Normalize fee keys to paise with sensible defaults consistent with BillingPulse.
+    DEFAULT_FEES = {
+        "new_patient_paise": 30000,
+        "followup_paise": 15000,
+        "procedure_paise": 50000,
+    }
+    normalized_fees = {k: int(fees.get(k, default)) for k, default in DEFAULT_FEES.items()}
+
+    return {
+        "clinic_id": clinic_id,
+        "name": clinic_doc.get("name", ""),
+        "doctor_name": clinic_doc.get("doctor_name", ""),
+        "phone": clinic_doc.get("phone", ""),
+        "location": clinic_doc.get("location", ""),
+        "consultation_fees": normalized_fees,
+        "agents_enabled": clinic_doc.get("agents_enabled", {}),
+        "is_active": clinic_doc.get("is_active", False),
+    }
+
+
 class DevProvisionRequest(BaseModel):
     uid: str
     clinic_id: Optional[str] = "cln_e2e_test_clinic"
@@ -214,6 +276,21 @@ async def dev_provision_clinic_user(req: DevProvisionRequest):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Development tenant provisioning is strictly disabled in production environments."
         )
+
+    # Idempotency check: return existing mapping if user is already provisioned
+    try:
+        existing = await get_document("clinic_users", req.uid)
+        if existing and existing.get("clinic_id"):
+            logger.info(f"Dev Provisioning: Mapping for {req.uid} already exists ({existing.get('clinic_id')}). Returning existing mapping.")
+            return {
+                "clinic_id": existing.get("clinic_id"),
+                "doctor_name": existing.get("doctor_name", req.doctor_name),
+                "clinic_name": existing.get("clinic_name", req.clinic_name),
+                "role": existing.get("role", req.role),
+                "status": "existing"
+            }
+    except Exception as e:
+        logger.debug(f"Dev Provisioning: Could not check existing clinic_users/{req.uid}: {e}")
 
     now_utc = datetime.now(timezone.utc)
     user_mapping = {

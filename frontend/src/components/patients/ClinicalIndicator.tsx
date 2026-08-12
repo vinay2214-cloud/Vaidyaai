@@ -14,22 +14,21 @@ interface ClinicalIndicatorProps {
 export const ClinicalIndicator: React.FC<ClinicalIndicatorProps> = ({
   allergies = [],
   chronicDiseases = [],
-  hasAiSummary = true,
-  hasScribeNote = true,
+  hasAiSummary = false,
+  hasScribeNote = false,
   hasRetentionRadar = false,
   className
 }) => {
+  const hasContent = allergies.length > 0 || chronicDiseases.length > 0 || hasAiSummary || hasScribeNote || hasRetentionRadar;
+  if (!hasContent) return null;
+
   return (
     <div className={clsx("flex items-center gap-1.5 flex-wrap text-[11px]", className)}>
-      {/* Allergies Badge */}
-      {allergies.length > 0 ? (
+      {/* Allergies Badge (only when recorded) */}
+      {allergies.length > 0 && (
         <span className="inline-flex items-center gap-1 bg-rose-500/10 border border-rose-500/30 text-rose-300 px-2 py-0.5 rounded-md font-medium">
           <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
           Allergies: {allergies.join(", ")}
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1 bg-slate-900 border border-slate-700/60 text-slate-400 px-2 py-0.5 rounded-md font-mono">
-          NKDA (No Known Drug Allergies)
         </span>
       )}
 

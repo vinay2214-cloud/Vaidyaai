@@ -1,0 +1,12 @@
+{
+  "ignore_dirs": [
+    ".venv",
+    ".ga_venv",
+    "node_modules",
+    ".next",
+    "__pycache__",
+    ".git",
+    ".pytest_cache",
+    "tests"
+  ]
+}

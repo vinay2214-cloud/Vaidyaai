@@ -33,6 +33,10 @@ export function useBilling() {
 
   useEffect(() => {
     fetchTodayBilling();
+    const interval = setInterval(() => {
+      fetchTodayBilling();
+    }, 5000);
+    return () => clearInterval(interval);
   }, [fetchTodayBilling]);
 
   return { summary, loading, refresh: fetchTodayBilling };

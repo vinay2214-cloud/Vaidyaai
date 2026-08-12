@@ -13,6 +13,7 @@ class Invoice(Base):
     invoice_number = Column(String(30), unique=True, nullable=False, index=True)
     clinic_id = Column(UUID(as_uuid=True), ForeignKey("clinics.id"), nullable=False, index=True)
     patient_phone_masked = Column(String(20), nullable=False)
+    patient_id = Column(String(128), nullable=True, index=True)
     consultation_firestore_id = Column(String(128), nullable=True, index=True)
     amount_paise = Column(Integer, nullable=False)
     consultation_type = Column(String(20), nullable=True)

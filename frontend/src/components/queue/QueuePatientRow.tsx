@@ -66,15 +66,6 @@ export function QueuePatientRow({ appointment }: QueuePatientRowProps) {
       ? "Now"
       : `~${etaMinutes}m wait`;
 
-  const riskLevel: "low" | "medium" | "high" | "critical" =
-    appointment.status === "in_progress"
-      ? "high"
-      : etaMinutes > 30
-      ? "high"
-      : etaMinutes > 15
-      ? "medium"
-      : "low";
-
   const statusLabel =
     appointment.status === "booked"
       ? "Booked"
@@ -94,7 +85,7 @@ export function QueuePatientRow({ appointment }: QueuePatientRowProps) {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold text-foreground">{appointment.patient_name || "Patient"}</span>
           <Badge variant="outline" className="text-[10px]">#{appointment.queue_number}</Badge>
-          <RiskBadge level={riskLevel} />
+          {(appointment as any).risk_level && <RiskBadge level={(appointment as any).risk_level} />}
           <Badge variant={appointment.status === "completed" ? "green" : appointment.status === "in_progress" ? "teal" : "neutral"} className="text-[10px]">
             {statusLabel}
           </Badge>

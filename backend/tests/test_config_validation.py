@@ -24,6 +24,7 @@ def test_production_accepts_fully_configured_settings(production_settings, monke
     monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "rzp_live_realid")
     monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "real-razorpay-secret")
     monkeypatch.setattr(settings, "RAZORPAY_WEBHOOK_SECRET", "real-webhook-secret")
+    monkeypatch.setattr(settings, "BACKEND_URL", "https://vaidya.ai")
 
     assert settings.production_config_errors() == []
     settings.validate_production()

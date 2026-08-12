@@ -20,7 +20,7 @@ import {
 const navItems: { label: string; href: string; icon: LucideIcon }[] = [
   { label: "Queue", href: "/", icon: Calendar },
   { label: "Patients", href: "/patients", icon: Users },
-  { label: "Consult", href: "/consultation/demo", icon: Stethoscope },
+  { label: "Consult", href: "/consultation", icon: Stethoscope },
   { label: "AI", href: "/logs", icon: Cpu },
   { label: "Billing", href: "/billing", icon: CreditCard },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },

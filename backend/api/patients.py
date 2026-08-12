@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from api.auth import get_current_user, verify_clinic_access
 from database.firestore import get_document, set_document, update_document, query_documents
 from utils.phone_utils import mask_phone, normalize_phone
+from utils.patient_identity import resolve_patient_id
 
 logger = logging.getLogger("vaidyaai.api.patients")
 router = APIRouter()
@@ -94,7 +95,9 @@ async def create_or_update_patient(
 
     formatted_phone = normalize_phone(req.phone)
     masked_phone_str = mask_phone(formatted_phone)
-    patient_id = f"pat_{formatted_phone.replace('+', '')}"
+
+    identity = await resolve_patient_id(req.clinic_id, formatted_phone)
+    patient_id = identity["patient_id"]
 
     now_utc = datetime.now(timezone.utc)
     patient_doc = {
@@ -138,7 +141,7 @@ async def get_patient_clinical_timeline(
         limit=TIMELINE_MAX_RECORDS,
     )
 
-    appt_ids = [a["appointment_id"] for a in appointments if a.get("appointment_id")]
+    appt_ids = [a["id"] for a in appointments if a.get("id")]
 
     # Consultations are linked to a patient only via their appointment_id, so fetch
     # per-appointment (concurrently) instead of scanning every clinic consultation.
@@ -197,27 +200,38 @@ async def register_patient_endpoint(
     formatted_phone = normalize_phone(req.phone)
     masked_phone_str = mask_phone(formatted_phone)
     now_utc = datetime.now(timezone.utc)
-    patient_id = f"pat_{int(now_utc.timestamp())}"
 
-    patient_doc = {
-        "patient_id": patient_id,
-        "clinic_id": req.clinic_id,
-        "name": req.name,
-        "phone": formatted_phone,
-        "patient_phone_masked": masked_phone_str,
-        "age": req.age,
-        "gender": req.gender,
-        "allergies": [],
-        "chronic_conditions": [],
-        "visit_count": 1,
-        "consent_given": True,
-        "consent_at": now_utc,
-        "opted_out": False,
-        "is_active": True,
-        "created_at": now_utc,
-        "updated_at": now_utc
-    }
-    await set_document("patients", patient_id, patient_doc)
+    identity = await resolve_patient_id(req.clinic_id, formatted_phone)
+    patient_id = identity["patient_id"]
+    is_new_patient = identity["is_new"]
+
+    if not is_new_patient and identity.get("existing_patient"):
+        existing = identity["existing_patient"]
+        visit_count = (existing.get("visit_count") or 0) + 1
+        await update_document("patients", patient_id, {
+            "visit_count": visit_count,
+            "updated_at": now_utc
+        })
+    else:
+        patient_doc = {
+            "patient_id": patient_id,
+            "clinic_id": req.clinic_id,
+            "name": req.name,
+            "phone": formatted_phone,
+            "patient_phone_masked": masked_phone_str,
+            "age": req.age,
+            "gender": req.gender,
+            "allergies": [],
+            "chronic_conditions": [],
+            "visit_count": 1,
+            "consent_given": True,
+            "consent_at": now_utc,
+            "opted_out": False,
+            "is_active": True,
+            "created_at": now_utc,
+            "updated_at": now_utc
+        }
+        await set_document("patients", patient_id, patient_doc)
 
     today_date = now_utc.strftime("%Y-%m-%d")
     existing_appts = await query_documents("appointments", [("clinic_id", "==", req.clinic_id), ("slot_date", "==", today_date)])

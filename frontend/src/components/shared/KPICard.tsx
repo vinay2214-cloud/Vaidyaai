@@ -69,23 +69,23 @@ export const KPICard: React.FC<KPICardProps> = ({
   return (
     <div
       className={clsx(
-        "bg-slate-800/80 border border-slate-700/60 rounded-2xl p-3 flex flex-col justify-between hover:border-slate-600/80 transition-all",
+        "bg-slate-800/80 border border-slate-700/60 rounded-2xl p-4 flex flex-col justify-between gap-2 hover:border-slate-600/80 hover:shadow-panel-lg transition-all",
         className
       )}
     >
-      <div className="flex items-center justify-between gap-1.5">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider truncate">
           {title}
         </span>
         {Icon && (
-          <div className={clsx("p-1 rounded-md border shrink-0", currentStyle.bg, currentStyle.border)}>
-            <Icon className={clsx("w-3 h-3", currentStyle.text)} />
+          <div className={clsx("w-7 h-7 rounded-lg border shrink-0 flex items-center justify-center", currentStyle.bg, currentStyle.border)}>
+            <Icon className={clsx("w-3.5 h-3.5", currentStyle.text)} />
           </div>
         )}
       </div>
 
-      <div className="mt-1.5 flex items-baseline justify-between">
-        <p className={clsx("text-2xl font-black font-mono tracking-tight leading-none", currentStyle.text)}>{value}</p>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className={clsx("text-2xl font-bold tracking-tight leading-none tnum", currentStyle.text)}>{value}</p>
         {trend && (
           <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md font-mono shrink-0">
             {trend}
@@ -93,7 +93,7 @@ export const KPICard: React.FC<KPICardProps> = ({
         )}
       </div>
 
-      {subtitle && <p className="text-[10px] text-slate-400 mt-1 truncate">{subtitle}</p>}
+      {subtitle && <p className="text-[11px] text-slate-400 truncate">{subtitle}</p>}
     </div>
   );
 };

@@ -10,52 +10,100 @@ logger = logging.getLogger("vaidyaai.database.firestore")
 
 _db: Optional[Any] = None
 _in_memory_store: Dict[str, Dict[str, Any]] = {}
+_use_in_memory: bool = False
+
+
+def _should_use_in_memory_store() -> bool:
+    """
+    Returns True when request handlers should use the process-local document
+    store instead of a live Firestore client.
+    """
+    if _use_in_memory:
+        return True
+    explicit_store = os.getenv("USE_IN_MEMORY_STORE", "").lower()
+    if explicit_store in ["true", "1", "yes"]:
+        if settings.is_production:
+            raise RuntimeError("SECURITY: USE_IN_MEMORY_STORE=true is forbidden in production")
+        return True
+    if explicit_store in ["false", "0", "no"]:
+        return False
+    if "PYTEST_CURRENT_TEST" in os.environ or settings.ENVIRONMENT == "testing":
+        return True
+    if settings.is_development and os.getenv("FIRESTORE_EMULATOR_HOST") is None:
+        return True
+    # Production must NOT use in-memory store
+    if settings.is_production:
+        return False
+    return False
 
 
 async def init_firestore():
     global _db
-    if settings.is_development and os.getenv("FIRESTORE_EMULATOR_HOST") is None:
+    if _should_use_in_memory_store():
+        logger.info("Using in-memory Firestore-compatible document store.")
         _db = None
         return None
+
     if not firebase_admin._apps:
         try:
             cred = credentials.ApplicationDefault()
             firebase_admin.initialize_app(cred, {
                 'projectId': settings.FIREBASE_PROJECT_ID
             })
-            logger.info("Firebase Admin SDK initialized with ApplicationDefault credentials")
+            logger.info(f"Firebase Admin SDK initialized with ApplicationDefault credentials for project '{settings.FIREBASE_PROJECT_ID}'")
         except Exception as e:
-            logger.warning(f"Default application credentials fallback: {e}")
+            logger.info(f"ApplicationDefault credentials fallback notice: {e}. Initializing with project ID options...")
             try:
                 firebase_admin.initialize_app(options={
                     'projectId': settings.FIREBASE_PROJECT_ID
                 })
-            except Exception:
-                pass
+            except Exception as init_err:
+                logger.warning(f"Firebase Admin initialize_app notice: {init_err}")
+
     try:
         _db = firestore.client()
+        logger.info(f"Successfully connected to Firestore client for project '{settings.FIREBASE_PROJECT_ID}'")
     except Exception as e:
-        logger.warning(f"Could not connect to live Firestore: {e}. Using in-memory fallback store.")
+        if settings.is_production:
+            raise RuntimeError(
+                f"🚨 Production Failure: Could not initialize live Firestore client for project '{settings.FIREBASE_PROJECT_ID}': {e}. "
+                "Ensure GOOGLE_APPLICATION_CREDENTIALS or Secret Manager credentials are valid."
+            ) from e
+
+        logger.warning(
+            f"⚠️ Could not connect to Firestore: {e}. "
+            "To connect to live Firestore or emulator in development, configure Application Default Credentials "
+            "('gcloud auth application-default login') or start the emulator ('export FIRESTORE_EMULATOR_HOST=127.0.0.1:8181')."
+        )
         _db = None
     return _db
 
 
 def get_firestore_client():
     global _db
-    if settings.is_development and os.getenv("FIRESTORE_EMULATOR_HOST") is None:
+    if _should_use_in_memory_store():
         return None
     if _db is None:
         if not firebase_admin._apps:
             try:
-                firebase_admin.initialize_app(options={
+                cred = credentials.ApplicationDefault()
+                firebase_admin.initialize_app(cred, {
                     'projectId': settings.FIREBASE_PROJECT_ID
                 })
             except Exception:
-                pass
+                try:
+                    firebase_admin.initialize_app(options={
+                        'projectId': settings.FIREBASE_PROJECT_ID
+                    })
+                except Exception:
+                    pass
         try:
             _db = firestore.client()
         except Exception as e:
-            logger.warning(f"Firestore client init fallback: {e}")
+            if settings.is_production:
+                raise RuntimeError(
+                    f"🚨 Production Failure: Could not initialize live Firestore client for project '{settings.FIREBASE_PROJECT_ID}': {e}"
+                ) from e
             _db = None
     return _db
 
@@ -65,7 +113,7 @@ def _get_document_sync(collection_name: str, doc_id: str) -> Optional[Dict[str, 
     if db is not None:
         try:
             doc_ref = db.collection(collection_name).document(doc_id)
-            doc = doc_ref.get()
+            doc = doc_ref.get(timeout=5.0)
             if doc.exists:
                 data = doc.to_dict()
                 data["id"] = doc.id
@@ -92,7 +140,7 @@ def _set_document_sync(collection_name: str, doc_id: str, data: Dict[str, Any], 
     if db is not None:
         try:
             doc_ref = db.collection(collection_name).document(doc_id)
-            doc_ref.set(data, merge=merge)
+            doc_ref.set(data, merge=merge, timeout=5.0)
         except Exception as e:
             logger.warning(f"Firestore set_document live write failed: {e}")
 
@@ -148,7 +196,7 @@ def _query_collection_sync(collection_name: str, filters: List[tuple], limit: Op
                 query = query.offset(offset)
             if limit:
                 query = query.limit(limit)
-            docs = query.stream()
+            docs = query.stream(timeout=5.0)
             result = []
             for doc in docs:
                 d = doc.to_dict()
@@ -189,7 +237,7 @@ def _get_clinic_by_whatsapp_phone_id_sync(phone_id: str) -> Optional[Dict[str, A
     db = get_firestore_client()
     if db is not None:
         try:
-            docs = db.collection("clinics").where("whatsapp_phone_id", "==", phone_id).limit(1).stream()
+            docs = db.collection("clinics").where("whatsapp_phone_id", "==", phone_id).limit(1).stream(timeout=3.0)
             for doc in docs:
                 d = doc.to_dict()
                 d["clinic_id"] = doc.id
@@ -218,7 +266,7 @@ def _get_patient_by_phone_sync(phone: str, clinic_id: str) -> Optional[Dict[str,
                 .where("clinic_id", "==", clinic_id)
                 .where("phone", "==", phone)
                 .limit(1)
-                .stream()
+                .stream(timeout=3.0)
             )
             for doc in docs:
                 d = doc.to_dict()

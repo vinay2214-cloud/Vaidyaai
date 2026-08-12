@@ -42,8 +42,8 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           <div className="flex items-center gap-1.5">
             <h4 className="text-xs font-bold text-white truncate">{name}</h4>
             <StatusBadge
-              label={status === "active" ? "Running" : status}
-              variant={status === "active" ? "running" : "neutral"}
+              label={status === "active" ? "Healthy" : status === "idle" ? "Idle" : status === "error" ? "Failed" : "Healthy"}
+              variant={status === "active" ? "success" : status === "idle" ? "neutral" : status === "error" ? "error" : "neutral"}
               size="sm"
             />
           </div>

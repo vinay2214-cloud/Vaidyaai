@@ -21,6 +21,8 @@ _client: Optional[Any] = None
 
 def get_tasks_client() -> Optional[Any]:
     global _client
+    if settings.is_development:
+        return None
     if _client is None and tasks_v2 is not None:
         try:
             _client = tasks_v2.CloudTasksClient()

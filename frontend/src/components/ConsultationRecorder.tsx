@@ -25,6 +25,9 @@ export function ConsultationRecorder({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunkIndexRef = useRef(0);
 
+  const uploadedChunkPathsRef = useRef<string[]>([]);
+  const pendingUploadsRef = useRef<Promise<any>[]>([]);
+
   // Cleanup old session on consultationId change
   useEffect(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
@@ -35,6 +38,8 @@ export function ConsultationRecorder({
     }
     mediaRecorderRef.current = null;
     chunkIndexRef.current = 0;
+    uploadedChunkPathsRef.current = [];
+    pendingUploadsRef.current = [];
     setChunkPaths([]);
     setRecording(false);
     setTranscribing(false);
@@ -49,6 +54,8 @@ export function ConsultationRecorder({
     }
     mediaRecorderRef.current = null;
     chunkIndexRef.current = 0;
+    uploadedChunkPathsRef.current = [];
+    pendingUploadsRef.current = [];
     setChunkPaths([]);
     setRecording(false);
     setTranscribing(false);
@@ -70,27 +77,34 @@ export function ConsultationRecorder({
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
       chunkIndexRef.current = 0;
+      uploadedChunkPathsRef.current = [];
+      pendingUploadsRef.current = [];
       setChunkPaths([]);
 
-      mediaRecorder.ondataavailable = async (e) => {
+      mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0 && clinicId) {
+          const currentIndex = chunkIndexRef.current;
+          chunkIndexRef.current += 1;
           const formData = new FormData();
           const blob = new Blob([e.data], { type: mimeType });
-          formData.append("file", blob, `chunk_${chunkIndexRef.current}.webm`);
+          formData.append("file", blob, `chunk_${currentIndex}.webm`);
 
-          try {
-            const res = await api.post(
-              `/consultations/upload-chunk?consultation_id=${consultationId}&clinic_id=${clinicId}&chunk_index=${chunkIndexRef.current}`,
-              formData,
-              { headers: { "Content-Type": "multipart/form-data" } }
-            );
+          const uploadPromise = api.post(
+            `/consultations/upload-chunk?consultation_id=${consultationId}&clinic_id=${clinicId}&chunk_index=${currentIndex}`,
+            formData,
+            { headers: { "Content-Type": "multipart/form-data" } }
+          ).then((res) => {
             if (res.data.chunk_path) {
+              uploadedChunkPathsRef.current.push(res.data.chunk_path);
               setChunkPaths((prev) => [...prev, res.data.chunk_path]);
             }
-            chunkIndexRef.current += 1;
-          } catch (err) {
-            console.error("Chunk upload failed:", err);
-          }
+            return res.data;
+          }).catch((err) => {
+            console.error(`Chunk ${currentIndex} upload failed:`, err);
+            return null;
+          });
+
+          pendingUploadsRef.current.push(uploadPromise);
         }
       };
 
@@ -104,28 +118,46 @@ export function ConsultationRecorder({
   };
 
   const stopRecordingAndTranscribe = async () => {
-    if (mediaRecorderRef.current && recording) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recording) {
       setRecording(false);
       setTranscribing(true);
 
-      setTimeout(async () => {
+      try {
+        // 1. Stop recorder and wait for final onstop event
+        await new Promise<void>((resolve) => {
+          if (recorder.state === "inactive") {
+            resolve();
+          } else {
+            recorder.onstop = () => resolve();
+            recorder.stop();
+          }
+        });
+
+        // 2. Stop audio tracks
         try {
-          const res = await api.post("/consultations/transcribe", {
-            clinic_id: clinicId,
-            consultation_id: consultationId,
-            appointment_id: appointmentId,
-            chunk_paths: chunkPaths.length > 0 ? chunkPaths : ["mock_chunk.webm"]
-          });
-          onTranscribed(res.data);
-        } catch (e) {
-          console.error("Transcription error:", e);
-          toast("Transcription failed. Try again.", "error");
-        } finally {
-          setTranscribing(false);
-        }
-      }, 1000);
+          recorder.stream.getTracks().forEach((t) => t.stop());
+        } catch (e) {}
+
+        // 3. Await all pending chunk upload network requests
+        await Promise.all(pendingUploadsRef.current);
+
+        // 4. Trigger backend Speech-to-Text & ClinicalScribe
+        const res = await api.post("/consultations/transcribe", {
+          clinic_id: clinicId,
+          consultation_id: consultationId,
+          appointment_id: appointmentId,
+          chunk_paths: uploadedChunkPathsRef.current
+        });
+
+        onTranscribed(res.data);
+      } catch (e: any) {
+        const errorDetail = e?.response?.data?.detail || e?.message || "Transcription failed";
+        console.error("Transcription error:", errorDetail, e);
+        toast(`Transcription failed: ${errorDetail}`, "error");
+      } finally {
+        setTranscribing(false);
+      }
     }
   };
 
@@ -166,7 +198,7 @@ export function ConsultationRecorder({
       ) : (
         <div className="flex flex-col items-center gap-3 py-4 text-teal-400 font-medium">
           <Loader2 className="w-8 h-8 animate-spin" />
-          <p className="text-sm">Processing audio, running Speech-to-Text & Gemini 1.5 Pro SOAP generation...</p>
+          <p className="text-sm">Processing audio, running Speech-to-Text & Clinical AI SOAP generation...</p>
         </div>
       )}
 

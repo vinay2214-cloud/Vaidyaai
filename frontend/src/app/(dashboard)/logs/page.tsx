@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { useAgentLogs, useAgentHealth } from "@/hooks/useAgentLogs";
 import { useClinicStore } from "@/store/clinicStore";
 import { useUIStore } from "@/store/uiStore";
 import { Panel, SectionHeader, ActivityFeed, ActivityItem, AIStatus, Button, Badge } from "@/components/design-system";
@@ -10,13 +10,13 @@ import { Cpu, Download, Activity, CheckCircle2, XCircle, Clock, ChevronDown, Che
 import api from "@/lib/api";
 
 const AGENTS = [
-  { id: "appointment_flow", label: "AppointmentFlow", color: "teal" as const, state: "running" as const, decisions: "slot_offers" },
-  { id: "clinical_scribe", label: "ClinicalScribe", color: "blue" as const, state: "running" as const, decisions: "soap_drafts" },
-  { id: "billing_pulse", label: "BillingPulse", color: "orange" as const, state: "running" as const, decisions: "invoice_runs" },
-  { id: "retention_radar", label: "RetentionRadar", color: "green" as const, state: "running" as const, decisions: "followups" },
-  { id: "prescription_safe", label: "PrescriptionSafe", color: "red" as const, state: "running" as const, decisions: "safety_checks" },
-  { id: "insight_engine", label: "InsightEngine", color: "blue" as const, state: "thinking" as const, decisions: "practice_alerts" },
-  { id: "referral_coordinator", label: "ReferralCoordinator", color: "green" as const, state: "running" as const, decisions: "referral_links" },
+  { id: "appointment_flow", label: "AppointmentFlow", color: "teal" as const, decisions: "slot_offers" },
+  { id: "clinical_scribe", label: "ClinicalScribe", color: "blue" as const, decisions: "soap_drafts" },
+  { id: "billing_pulse", label: "BillingPulse", color: "orange" as const, decisions: "invoice_runs" },
+  { id: "retention_radar", label: "RetentionRadar", color: "green" as const, decisions: "followups" },
+  { id: "prescription_safe", label: "PrescriptionSafe", color: "red" as const, decisions: "safety_checks" },
+  { id: "insight_engine", label: "InsightEngine", color: "blue" as const, decisions: "practice_alerts" },
+  { id: "referral_coordinator", label: "ReferralCoordinator", color: "green" as const, decisions: "referral_links" },
 ];
 
 const AGENT_COLOR_MAP: Record<string, ActivityItem["agentColor"]> = {
@@ -48,6 +48,7 @@ export default function AgentLogsPage() {
   const setSelectedAgentFilter = useUIStore((state) => state.setSelectedAgentFilter);
   const clinicId = useClinicStore((state) => state.clinicId);
   const { logs, loading } = useAgentLogs(selectedAgentFilter);
+  const { healthData } = useAgentHealth();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const items: ActivityItem[] = useMemo(
@@ -65,12 +66,23 @@ export default function AgentLogsPage() {
   );
 
   const stats = useMemo(() => {
+    const platform = healthData?.platform;
+    if (platform) {
+      return {
+        total: platform.total_tasks_today,
+        errors: platform.total_failures_today,
+        avgLatency: platform.avg_latency_ms,
+        activeAgents: platform.active_agents,
+        totalAgents: platform.total_agents,
+      };
+    }
     const total = logs.length;
     const errors = logs.filter((l) => l.success === false).length;
     const latencies = logs.map((l) => l.latency_ms).filter((l): l is number => l !== undefined);
     const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
-    return { total, errors, avgLatency };
-  }, [logs]);
+    const distinctAgents = new Set(logs.map((l) => l.agent_name)).size;
+    return { total, errors, avgLatency, activeAgents: distinctAgents, totalAgents: 7 };
+  }, [healthData, logs]);
 
   const handleExportEvidence = async () => {
     if (!clinicId) return;
@@ -132,10 +144,10 @@ export default function AgentLogsPage() {
 
       <div className="flex items-center gap-3 flex-wrap">
         <Badge variant="neutral" dot dotClassName={stats.errors === 0 ? "bg-green-400" : "bg-red-400"}>
-          {stats.errors === 0 ? "7/7 agents healthy" : `${stats.errors} recent failures`}
+          {stats.errors === 0 ? `${stats.activeAgents}/${stats.totalAgents} agents healthy` : `${stats.errors} recent failures`}
         </Badge>
         <Badge variant="neutral" className="flex items-center gap-1.5">
-          <Activity className="w-3.5 h-3.5 text-foreground-subtle" /> {stats.total || "—"} decisions
+          <Activity className="w-3.5 h-3.5 text-foreground-subtle" /> {stats.total} decisions today
         </Badge>
         {stats.avgLatency > 0 && (
           <Badge variant="neutral" className="flex items-center gap-1.5">
@@ -195,8 +207,21 @@ export default function AgentLogsPage() {
 
           <div className="space-y-2">
             {AGENTS.map((agent) => {
+              const agentHealth = healthData?.agents.find((a) => a.id === agent.id);
               const agentLogs = logs.filter((l) => l.agent_name === agent.id);
-              const lastDecision = agentLogs[0];
+              const tasksToday = agentHealth?.tasks_today ?? agentLogs.length;
+              const statusText = agentHealth?.status || (tasksToday > 0 ? "Healthy" : "Idle");
+              const lastDecisionText = agentHealth?.last_decision || agentLogs[0]?.decision_made;
+
+              const statusState =
+                statusText === "Running"
+                  ? "running"
+                  : statusText === "Healthy" || statusText === "Completed"
+                  ? "completed"
+                  : statusText === "Failed"
+                  ? "warning"
+                  : "pending";
+
               return (
                 <div
                   key={agent.id}
@@ -210,25 +235,27 @@ export default function AgentLogsPage() {
                       <div
                         className={cn(
                           "w-2 h-2 rounded-full",
-                          agent.state === "running" && "bg-green-400 animate-pulse",
-                          agent.state === "thinking" && "bg-blue-400 animate-pulse"
+                          statusText === "Running" && "bg-green-400 animate-pulse",
+                          statusText === "Healthy" && "bg-teal-400",
+                          statusText === "Failed" && "bg-red-400 animate-pulse",
+                          statusText === "Idle" && "bg-slate-400"
                         )}
                       />
                       <span className="text-sm font-medium text-foreground">{agent.label}</span>
                     </div>
                     <AIStatus
-                      state={agent.state === "thinking" ? "thinking" : "running"}
-                      label={agent.state === "thinking" ? "Thinking" : "Running"}
-                      pulse={false}
+                      state={statusState}
+                      label={statusText}
+                      pulse={statusText === "Running"}
                     />
                   </div>
                   <div className="mt-2 flex items-center justify-between text-xs text-foreground-subtle">
                     <span className="capitalize">{agent.decisions.replace(/_/g, " ")}</span>
-                    <span>{agentLogs.length} today</span>
+                    <span>{tasksToday} today</span>
                   </div>
-                  {lastDecision && (
+                  {lastDecisionText && (
                     <p className="mt-1.5 text-xs text-foreground-subtle truncate">
-                      Last: {lastDecision.decision_made}
+                      Last: {lastDecisionText}
                     </p>
                   )}
                 </div>
@@ -261,7 +288,7 @@ export default function AgentLogsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-orange-400" />
-                  <span>Avg latency: {stats.avgLatency || 850}ms</span>
+                  <span>Avg latency: {stats.avgLatency ? `${stats.avgLatency}ms` : "No data available"}</span>
                 </div>
               </div>
             )}

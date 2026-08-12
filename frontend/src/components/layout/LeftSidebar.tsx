@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/design-system";
+import { useAgentHealth } from "@/hooks/useAgentHealth";
 
 interface NavItem {
   label: string;
@@ -29,7 +30,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Today's Queue", href: "/", icon: Calendar },
   { label: "Patients", href: "/patients", icon: Users },
-  { label: "Consultations", href: "/consultation/demo", icon: Stethoscope },
+  { label: "Consultations", href: "/consultation", icon: Stethoscope },
   { label: "AI Agents", href: "/logs", icon: Cpu },
   { label: "Billing", href: "/billing", icon: CreditCard },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
@@ -40,6 +41,18 @@ export function LeftSidebar() {
   const pathname = usePathname();
   const setWalkInModalOpen = useUIStore((state) => state.setWalkInModalOpen);
   const { toast } = useToast();
+  const { platform, loading: healthLoading } = useAgentHealth();
+
+  const healthLine = (() => {
+    if (healthLoading) return "Checking workforce status…";
+    if (!platform) return "No telemetry available";
+    const active = platform.active_agents ?? 0;
+    const total = platform.total_agents ?? 0;
+    const failures = platform.total_failures_today ?? 0;
+    if (total === 0) return "No executions yet";
+    return `${active}/${total} agents active. ${failures} failure${failures === 1 ? "" : "s"} today.`;
+  })();
+  const workforceOk = platform ? (platform.total_failures_today ?? 0) === 0 && (platform.total_agents ?? 0) > 0 : false;
 
   return (
     <aside className="w-60 bg-background-panel border-r border-border flex flex-col h-full shrink-0">
@@ -84,11 +97,11 @@ export function LeftSidebar() {
       <div className="p-4 border-t border-border">
         <div className="panel p-3 space-y-2">
           <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            AI Workforce Active
+            <span className={cn("w-2 h-2 rounded-full animate-pulse", workforceOk ? "bg-green-500" : "bg-amber-500")} />
+            AI Workforce
           </div>
           <p className="text-[10px] text-foreground-subtle">
-            7 agents running. 0 failures today.
+            {healthLine}
           </p>
         </div>
       </div>

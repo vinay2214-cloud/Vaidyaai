@@ -75,13 +75,14 @@ class AppointmentFlowAgent(BaseAgent):
                 access_token=access_token
             )
 
-        # 3. Call Gemini 1.5 Flash to detect intent and language
+        # 3. Call Gemini 2.5 Flash to detect intent and language
         # C-7: anonymise the raw patient message before it leaves for the LLM.
+        from config import settings
         prompt = build_appointment_intent_prompt(anonymise_for_llm(message))
         intent_data, latency_ms = await self._timed_gemini_json_call(
             task="intent_detection",
             prompt=prompt,
-            model="gemini-1.5-flash"
+            model=settings.GEMINI_FAST_MODEL
         )
 
         intent = intent_data.get("intent", "OTHER")
@@ -92,11 +93,11 @@ class AppointmentFlowAgent(BaseAgent):
 
         await self.logger.log_decision(
             decision_type="intent_detected",
-            decision_made=f"Detected intent '{intent}' in '{language}' (urgency={urgency})",
+            decision_made=f"Detected intent '{intent}' in '{language}' (urgency={urgency}) via {settings.GEMINI_FAST_MODEL}",
             clinic_id=clinic_id,
             input_summary=message[:100],
             output_summary=str(intent_data),
-            model_used="gemini-1.5-flash",
+            model_used=settings.GEMINI_FAST_MODEL,
             latency_ms=latency_ms,
             patient_phone_masked=masked_phone
         )
@@ -128,6 +129,84 @@ class AppointmentFlowAgent(BaseAgent):
             message=message_text,
             clinic_id=clinic_id
         )
+
+    async def send_t_minus_2h_reminder(
+        self,
+        appointment_id: str,
+        clinic_id: str,
+        patient_phone: str,
+        slot_time_str: str = "10:00 AM"
+    ) -> Dict[str, Any]:
+        """Send a T-2h appointment reminder via WhatsApp. Invoked by Cloud Tasks."""
+        normalized_phone = normalize_phone(patient_phone)
+        masked_phone = mask_phone(normalized_phone)
+
+        appointment = await get_document("appointments", appointment_id)
+        queue_position = (appointment or {}).get("queue_number", 1)
+        language = "te"
+
+        clinic = await get_document("clinics", clinic_id) or {}
+        doctor_name = clinic.get("doctor_name", "Doctor")
+        phone_id = clinic.get("whatsapp_phone_id")
+        access_token = clinic.get("whatsapp_access_token")
+
+        reminder_text = REMINDER_TEMPLATES.get(language, REMINDER_TEMPLATES["en"]).format(
+            time=slot_time_str,
+            queue_position=queue_position,
+            doctor_name=doctor_name
+        )
+
+        await self.whatsapp.send_text(
+            to=normalized_phone,
+            message=reminder_text,
+            phone_id=phone_id,
+            access_token=access_token
+        )
+
+        await self.logger.log_decision(
+            decision_type="t_minus_2h_reminder_sent",
+            decision_made=f"Sent T-2h reminder for appointment {appointment_id} to {masked_phone} at {slot_time_str}",
+            clinic_id=clinic_id,
+            patient_phone_masked=masked_phone,
+            appointment_id=appointment_id
+        )
+        return {"status": "reminder_sent", "appointment_id": appointment_id}
+
+    async def send_t_plus_24h_wellness_check(
+        self,
+        appointment_id: str,
+        clinic_id: str,
+        patient_phone: str
+    ) -> Dict[str, Any]:
+        """Send a T+24h wellness follow-up via WhatsApp. Invoked by Cloud Tasks."""
+        normalized_phone = normalize_phone(patient_phone)
+        masked_phone = mask_phone(normalized_phone)
+        language = "te"
+
+        clinic = await get_document("clinics", clinic_id) or {}
+        doctor_name = clinic.get("doctor_name", "Doctor")
+        phone_id = clinic.get("whatsapp_phone_id")
+        access_token = clinic.get("whatsapp_access_token")
+
+        wellness_text = WELLNESS_TEMPLATES.get(language, WELLNESS_TEMPLATES["en"]).format(
+            doctor_name=doctor_name
+        )
+
+        await self.whatsapp.send_text(
+            to=normalized_phone,
+            message=wellness_text,
+            phone_id=phone_id,
+            access_token=access_token
+        )
+
+        await self.logger.log_decision(
+            decision_type="t_plus_24h_wellness_check_sent",
+            decision_made=f"Sent T+24h wellness check for appointment {appointment_id} to {masked_phone}",
+            clinic_id=clinic_id,
+            patient_phone_masked=masked_phone,
+            appointment_id=appointment_id
+        )
+        return {"status": "wellness_check_sent", "appointment_id": appointment_id}
 
     async def _handle_booking(
         self,
@@ -472,12 +551,15 @@ class AppointmentFlowAgent(BaseAgent):
         return {"status": "other_responded"}
 
     async def _ensure_patient_exists(self, phone: str, clinic_id: str, language: str) -> str:
-        patient = await get_patient_by_phone(phone, clinic_id)
-        if patient:
-            return patient["patient_id"]
+        from utils.patient_identity import resolve_patient_id
+        identity = await resolve_patient_id(clinic_id, phone)
+        patient_id = identity["patient_id"]
 
-        patient_id = f"pat_{int(datetime.now(timezone.utc).timestamp())}"
+        if not identity["is_new"] and identity.get("existing_patient"):
+            return patient_id
+
         patient_data = {
+            "patient_id": patient_id,
             "clinic_id": clinic_id,
             "phone": phone,
             "phone_masked": mask_phone(phone),

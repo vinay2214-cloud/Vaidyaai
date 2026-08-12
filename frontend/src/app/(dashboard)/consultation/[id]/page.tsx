@@ -5,22 +5,28 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useConsultation } from "@/hooks/useConsultation";
 import { useClinicStore } from "@/store/clinicStore";
 import { ConsultationWorkspace } from "@/components/consultation/ConsultationWorkspace";
-import { Panel } from "@/components/design-system";
-import { Activity } from "lucide-react";
+import { Panel, Button } from "@/components/design-system";
+import { Activity, Stethoscope, Calendar } from "lucide-react";
 
 function ConsultationContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const consultationId = (params?.id as string) || "cons_demo";
-  const appointmentId = searchParams.get("appointment_id") || "app_demo";
+  const consultationId = (params?.id as string) || "";
+  const appointmentId = searchParams.get("appointment_id") || "";
 
   const clinicId = useClinicStore((state) => state.clinicId);
   const resetConsultation = useClinicStore((state) => state.resetConsultation);
   const setActiveConsultation = useClinicStore((state) => state.setActiveConsultation);
 
   const { consultation, loading, refresh, setConsultation } = useConsultation(consultationId);
+
+  useEffect(() => {
+    if (consultationId === "demo") {
+      router.replace("/consultation");
+    }
+  }, [consultationId, router]);
 
   // Security & isolation guard
   useEffect(() => {
@@ -57,12 +63,25 @@ function ConsultationContent() {
 
   if (!consultation) {
     return (
-      <Panel className="max-w-xl mx-auto mt-12 p-6 text-center">
-        <h2 className="text-lg font-semibold text-foreground">Consultation not found</h2>
-        <p className="text-sm text-foreground-subtle mt-2">
-          We could not load this consultation. Please check the ID or return to the queue.
-        </p>
-      </Panel>
+      <div className="max-w-2xl mx-auto mt-16 px-4">
+        <Panel className="p-8 text-center space-y-4 bg-background-panel border border-border rounded-2xl shadow-lg">
+          <div className="w-12 h-12 rounded-full bg-teal-500/10 border border-teal-500/20 flex items-center justify-center mx-auto text-teal-400">
+            <Stethoscope className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-xl font-bold text-foreground">No active consultation</h2>
+            <p className="text-sm text-foreground-subtle max-w-md mx-auto">
+              Select a patient from Today&apos;s Queue to start a new consultation session.
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <Button onClick={() => router.push("/")} variant="primary" size="md">
+              <Calendar className="w-4 h-4" />
+              Today&apos;s Queue
+            </Button>
+          </div>
+        </Panel>
+      </div>
     );
   }
 

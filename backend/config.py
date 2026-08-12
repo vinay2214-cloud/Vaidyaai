@@ -14,10 +14,24 @@ class Settings(BaseSettings):
     GCP_REGION: str = os.getenv("GCP_REGION", "asia-south1")
     GCS_BUCKET_CONSULTATIONS: str = os.getenv("GCS_BUCKET_CONSULTATIONS", "vaidyaai-xprize-consultations")
     GOOGLE_GENAI_USE_VERTEXAI: bool = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "true").lower() in ["true", "1", "yes"]
-    LLM_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "30"))
+    LLM_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "45"))
+
+    # Centralized AI Model Configuration (Gemini 2.5 Pro & Gemini 2.5 Flash)
+    GEMINI_REASONING_MODEL: str = os.getenv("GEMINI_REASONING_MODEL", "gemini-2.5-pro")
+    GEMINI_REASONING_LOCATION: str = os.getenv("GEMINI_REASONING_LOCATION", "us-central1")
+    GEMINI_FAST_MODEL: str = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash")
+    GEMINI_FAST_LOCATION: str = os.getenv("GEMINI_FAST_LOCATION", "asia-south1")
+    GEMINI_TEMPERATURE_CLINICAL: float = float(os.getenv("GEMINI_TEMPERATURE_CLINICAL", "0.1"))
+    GEMINI_TEMPERATURE_FAST: float = float(os.getenv("GEMINI_TEMPERATURE_FAST", "0.2"))
+    GEMINI_TOP_P: float = float(os.getenv("GEMINI_TOP_P", "0.9"))
+    GEMINI_MAX_OUTPUT_TOKENS: int = int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "8192"))
+    
+    # Strict Clinical AI Execution Policy (Fail-closed live execution)
+    LIVE_CLINICAL_AI: bool = os.getenv("LIVE_CLINICAL_AI", "true").lower() in ["true", "1", "yes"]
+    AI_ALLOW_MOCK_FALLBACK: bool = os.getenv("AI_ALLOW_MOCK_FALLBACK", "false").lower() in ["true", "1", "yes"]
     
     # Firebase Config
-    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "vaidyaai-xprize")
+    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "vaidyaai-xprize-d4b2d")
     
     # WhatsApp Config
     WHATSAPP_PHONE_ID: str = os.getenv("WHATSAPP_PHONE_ID", "placeholder_phone_id")
@@ -54,7 +68,7 @@ class Settings(BaseSettings):
     FEATURE_VOICE: bool = os.getenv("FEATURE_VOICE", "true").lower() in ["true", "1", "yes"]
     FEATURE_REALTIME_EVENTS: bool = os.getenv("FEATURE_REALTIME_EVENTS", "true").lower() in ["true", "1", "yes"]
     FEATURE_ANALYTICS: bool = os.getenv("FEATURE_ANALYTICS", "true").lower() in ["true", "1", "yes"]
-    FEATURE_DEMO_MODE: bool = os.getenv("FEATURE_DEMO_MODE", "true").lower() in ["true", "1", "yes"]
+    FEATURE_DEMO_MODE: bool = os.getenv("FEATURE_DEMO_MODE", "false").lower() in ["true", "1", "yes"]
 
     # CORS Config
     CORS_ORIGINS_RAW: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
@@ -88,10 +102,17 @@ class Settings(BaseSettings):
             "RAZORPAY_KEY_ID": self.RAZORPAY_KEY_ID,
             "RAZORPAY_KEY_SECRET": self.RAZORPAY_KEY_SECRET,
             "RAZORPAY_WEBHOOK_SECRET": self.RAZORPAY_WEBHOOK_SECRET,
+            "BACKEND_URL": self.BACKEND_URL,
         }
         for name, value in placeholder_fields.items():
             if not value or "placeholder" in value.lower():
                 errors.append(f"{name} is unset or still using a placeholder value.")
+
+        if not self.LIVE_CLINICAL_AI:
+            errors.append("LIVE_CLINICAL_AI must be true in production.")
+
+        if self.AI_ALLOW_MOCK_FALLBACK:
+            errors.append("AI_ALLOW_MOCK_FALLBACK must be false in production.")
 
         return errors
 

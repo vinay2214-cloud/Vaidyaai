@@ -36,8 +36,8 @@ export const DecisionEntry: React.FC<DecisionEntryProps> = ({ log, className }) 
       : "Just now"
     : "Just now";
 
-  const confidenceScore = log.confidence || 98;
-  const modelName = log.model_used || "gemini-1.5-flash";
+  const confidenceScore = log.confidence ? (log.confidence <= 1 ? Math.round(log.confidence * 100) : Math.round(log.confidence)) : null;
+  const modelName = log.model_used || "—";
 
   return (
     <div
@@ -77,9 +77,13 @@ export const DecisionEntry: React.FC<DecisionEntryProps> = ({ log, className }) 
               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md border border-rose-500/30">
                 <AlertTriangle className="w-3 h-3" /> FAILED
               </span>
-            ) : (
+            ) : confidenceScore ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/30 font-mono">
                 <CheckCircle className="w-3 h-3" /> {confidenceScore}% confidence
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded-md border border-teal-500/30 font-mono">
+                <CheckCircle className="w-3 h-3" /> Verified Decision
               </span>
             )}
           </div>

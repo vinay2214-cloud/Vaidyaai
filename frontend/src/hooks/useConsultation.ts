@@ -14,12 +14,18 @@ export interface ConsultationData {
     assessment: string;
     plan: string;
   };
-  diagnoses: Array<{ code: string; description: string; confidence: number }>;
+  diagnoses: Array<{ code: string; description: string; confidence: number; is_provisional?: boolean }>;
   medications: Array<{ drug_name: string; dosage: string; frequency: string; duration: string; instructions: string }>;
   investigations: string[];
   referrals: Array<{ speciality: string; reason: string; urgency: string }>;
   followup_days: number;
   status: "draft" | "approved";
+  vitals?: any;
+  clinical_facts?: any;
+  patient_allergies?: string[];
+  allergy_review_status?: string;
+  allergy_alert?: string | null;
+  scribe_metadata?: any;
 }
 
 export function useConsultation(consultationId: string) {
@@ -28,7 +34,10 @@ export function useConsultation(consultationId: string) {
   const [loading, setLoading] = useState(true);
 
   const fetchConsultation = useCallback(async () => {
-    if (!clinicId || !consultationId) return;
+    if (!clinicId || !consultationId || consultationId === "demo") {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const res = await api.get(`/consultations/${consultationId}?clinic_id=${clinicId}`);
@@ -41,8 +50,10 @@ export function useConsultation(consultationId: string) {
   }, [clinicId, consultationId]);
 
   useEffect(() => {
+    setConsultation(null);
+    setLoading(true);
     fetchConsultation();
-  }, [fetchConsultation]);
+  }, [consultationId, fetchConsultation]);
 
   return { consultation, loading, refresh: fetchConsultation, setConsultation };
 }

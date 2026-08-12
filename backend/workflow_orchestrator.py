@@ -212,6 +212,7 @@ class WorkflowOrchestrator:
                 clinic_id=clinic_id,
                 patient_phone=patient_phone,
                 consultation_type=consultation_type,
+                patient_id=event.get("patient_id"),
             )
             logger.info(
                 f"BillingPulse: Invoice generated for {consultation_id} → "

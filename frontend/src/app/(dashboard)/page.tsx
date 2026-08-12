@@ -4,10 +4,11 @@ import React from "react";
 import { useAppointmentsToday } from "@/hooks/useAppointmentsToday";
 import { useBilling } from "@/hooks/useBilling";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { useAgentHealth } from "@/hooks/useAgentHealth";
 import { QueueHeader } from "@/components/queue/QueueHeader";
 import { QueueSection } from "@/components/queue/QueueSection";
 import { EmptyState, ActivityFeed, ActivityItem, SectionHeader, Panel, Badge, AIStatus } from "@/components/design-system";
-import { Calendar, Clock, CheckCircle2, IndianRupee, Bot, Activity, Users } from "lucide-react";
+import { Calendar, Clock, CheckCircle2, IndianRupee, Bot, Activity, Users, ChevronRight } from "lucide-react";
 import { AgentLog } from "@/hooks/useAgentLogs";
 
 const agentColorMap: Record<string, "teal" | "blue" | "orange" | "red" | "green" | "gray"> = {
@@ -54,6 +55,14 @@ export default function TodayQueuePage() {
   const { appointments, loading } = useAppointmentsToday();
   const { summary, refresh: refreshBilling } = useBilling();
   const { logs } = useAgentLogs();
+  const { platform } = useAgentHealth();
+
+  const agentsActiveLabel = platform
+    ? `${platform.active_agents ?? 0}/${platform.total_agents ?? 0}`
+    : "—";
+  const agentsActiveVariant: "green" | "orange" = platform
+    ? (platform.total_failures_today ?? 0) === 0 && (platform.total_agents ?? 0) > 0 ? "green" : "orange"
+    : "orange";
 
   React.useEffect(() => {
     refreshBilling();
@@ -84,23 +93,51 @@ export default function TodayQueuePage() {
   const activities = logs.slice(0, 8).map(logToActivity);
   const totalRevenue = summary ? `₹${summary.total_collected_rupees.toLocaleString("en-IN")}` : "₹0";
 
+  const activeEncounter = currentPatient || waitingPatients[0] || completedPatients[0] || null;
+
+  const pipelineStates = React.useMemo(() => {
+    if (!activeEncounter || appointments.length === 0) {
+      return {
+        registration: "pending" as const,
+        triage: "pending" as const,
+        consult: "pending" as const,
+        soap: "pending" as const,
+        billing: "pending" as const,
+        followup: "pending" as const,
+      };
+    }
+
+    const isArrived = activeEncounter.status === "arrived" || activeEncounter.status === "booked";
+    const isInProgress = activeEncounter.status === "in_progress";
+    const isCompleted = activeEncounter.status === "completed";
+
+    return {
+      registration: "completed" as const,
+      triage: isCompleted || isInProgress || (activeEncounter as any).triage_note ? ("completed" as const) : isArrived ? ("running" as const) : ("pending" as const),
+      consult: isCompleted ? ("completed" as const) : isInProgress ? ("running" as const) : ("pending" as const),
+      soap: isCompleted || (activeEncounter as any).soap_approved ? ("completed" as const) : isInProgress && (activeEncounter as any).soap_note ? ("running" as const) : ("pending" as const),
+      billing: isCompleted || (activeEncounter as any).billing_status === "paid" ? ("completed" as const) : (activeEncounter as any).billing_status === "pending" ? ("running" as const) : ("pending" as const),
+      followup: isCompleted ? ("completed" as const) : ("pending" as const),
+    };
+  }, [activeEncounter, appointments.length]);
+
   return (
     <div className="space-y-6 pb-20 md:pb-0">
       <QueueHeader total={totalBooked} waiting={waiting} completed={completed} />
 
       {/* Status Pipeline */}
-      <div className="panel p-4 flex items-center gap-3 overflow-x-auto scrollbar-none">
-        <AIStatus state="completed" label="Patient Registered" />
-        <span className="text-foreground-subtle">→</span>
-        <AIStatus state="completed" label="AI Triage" />
-        <span className="text-foreground-subtle">→</span>
-        <AIStatus state={inProgress > 0 ? "running" : "pending"} label="Doctor Consult" />
-        <span className="text-foreground-subtle">→</span>
-        <AIStatus state="pending" label="SOAP & Rx" />
-        <span className="text-foreground-subtle">→</span>
-        <AIStatus state="pending" label="Bill & UPI" />
-        <span className="text-foreground-subtle">→</span>
-        <AIStatus state="pending" label="Follow-up" />
+      <div className="panel px-4 py-3.5 flex items-center gap-3 overflow-x-auto scrollbar-none" aria-label="Patient journey pipeline">
+        <AIStatus state={pipelineStates.registration} label="Patient Registered" className="shrink-0" />
+        <ChevronRight className="w-4 h-4 text-foreground-subtle shrink-0" aria-hidden="true" />
+        <AIStatus state={pipelineStates.triage} label="AI Triage" className="shrink-0" />
+        <ChevronRight className="w-4 h-4 text-foreground-subtle shrink-0" aria-hidden="true" />
+        <AIStatus state={pipelineStates.consult} label="Doctor Consult" className="shrink-0" />
+        <ChevronRight className="w-4 h-4 text-foreground-subtle shrink-0" aria-hidden="true" />
+        <AIStatus state={pipelineStates.soap} label="SOAP & Rx" className="shrink-0" />
+        <ChevronRight className="w-4 h-4 text-foreground-subtle shrink-0" aria-hidden="true" />
+        <AIStatus state={pipelineStates.billing} label="Bill & UPI" className="shrink-0" />
+        <ChevronRight className="w-4 h-4 text-foreground-subtle shrink-0" aria-hidden="true" />
+        <AIStatus state={pipelineStates.followup} label="Follow-up" className="shrink-0" />
       </div>
 
       {/* Main Grid */}
@@ -127,9 +164,9 @@ export default function TodayQueuePage() {
           )}
 
           {loading ? (
-            <div className="space-y-3">
+            <div className="space-y-3" role="status" aria-label="Loading today's queue">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-20 bg-background-elevated/50 rounded-xl animate-pulse" />
+                <div key={i} className="h-20 bg-background-elevated/50 border border-border rounded-xl animate-pulse" />
               ))}
             </div>
           ) : appointments.length === 0 ? (
@@ -143,23 +180,35 @@ export default function TodayQueuePage() {
 
         <div className="space-y-6">
           <Panel padding="md">
-            <SectionHeader icon={Calendar} title="Queue Summary" />
+            <SectionHeader icon={Calendar} title="Queue Summary" subtitle="Today's live snapshot" />
             <div className="grid grid-cols-2 gap-3 mt-4">
-              <div className="panel p-3 border border-border">
-                <div className="text-2xl font-bold text-foreground">{totalBooked}</div>
-                <div className="text-xs text-foreground-muted flex items-center gap-1"><Users className="w-3 h-3" /> Booked</div>
+              <div className="rounded-xl bg-background-elevated/50 border border-border p-3.5 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-bold text-foreground tnum">{totalBooked}</span>
+                  <span className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center"><Users className="w-3.5 h-3.5 text-blue-400" /></span>
+                </div>
+                <div className="text-xs font-medium text-foreground-muted">Booked</div>
               </div>
-              <div className="panel p-3 border border-border">
-                <div className="text-2xl font-bold text-foreground">{waiting}</div>
-                <div className="text-xs text-foreground-muted flex items-center gap-1"><Clock className="w-3 h-3" /> Waiting</div>
+              <div className="rounded-xl bg-background-elevated/50 border border-border p-3.5 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-bold text-foreground tnum">{waiting}</span>
+                  <span className="w-7 h-7 rounded-lg bg-orange-500/10 border border-orange-500/30 flex items-center justify-center"><Clock className="w-3.5 h-3.5 text-orange-400" /></span>
+                </div>
+                <div className="text-xs font-medium text-foreground-muted">Waiting</div>
               </div>
-              <div className="panel p-3 border border-border">
-                <div className="text-2xl font-bold text-teal-400">{completed}</div>
-                <div className="text-xs text-foreground-muted flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Completed</div>
+              <div className="rounded-xl bg-background-elevated/50 border border-border p-3.5 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-bold text-teal-400 tnum">{completed}</span>
+                  <span className="w-7 h-7 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center"><CheckCircle2 className="w-3.5 h-3.5 text-teal-400" /></span>
+                </div>
+                <div className="text-xs font-medium text-foreground-muted">Completed</div>
               </div>
-              <div className="panel p-3 border border-border">
-                <div className="text-2xl font-bold text-green-400">{totalRevenue}</div>
-                <div className="text-xs text-foreground-muted flex items-center gap-1"><IndianRupee className="w-3 h-3" /> Collected</div>
+              <div className="rounded-xl bg-background-elevated/50 border border-border p-3.5 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-bold text-green-400 tnum">{totalRevenue}</span>
+                  <span className="w-7 h-7 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center justify-center"><IndianRupee className="w-3.5 h-3.5 text-green-400" /></span>
+                </div>
+                <div className="text-xs font-medium text-foreground-muted">Collected</div>
               </div>
             </div>
           </Panel>
@@ -170,22 +219,19 @@ export default function TodayQueuePage() {
           </Panel>
 
           <Panel padding="md">
-            <div className="flex items-center gap-2 mb-3">
-              <Activity className="w-4 h-4 text-teal-400" />
-              <span className="text-sm font-semibold text-foreground">AI Health</span>
-            </div>
-            <div className="space-y-2">
+            <SectionHeader icon={Activity} title="AI Health" subtitle="Workforce telemetry" />
+            <div className="mt-4 space-y-2.5">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-foreground-muted">Agents Active</span>
-                <Badge variant="green" dot>7/7</Badge>
+                <Badge variant={agentsActiveVariant} dot>{agentsActiveLabel}</Badge>
               </div>
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-between text-sm border-t border-border/50 pt-2.5">
                 <span className="text-foreground-muted">Decisions Today</span>
-                <span className="font-mono text-foreground">{logs.length || 0}</span>
+                <span className="font-mono font-medium text-foreground tnum">{logs.length || 0}</span>
               </div>
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-between text-sm border-t border-border/50 pt-2.5">
                 <span className="text-foreground-muted">Avg Latency</span>
-                <span className="font-mono text-foreground">
+                <span className="font-mono font-medium text-foreground tnum">
                   {logs.length > 0 
                     ? `${Math.round(logs.reduce((acc, log) => acc + (log.latency_ms || 0), 0) / logs.length)}ms`
                     : "0ms"}

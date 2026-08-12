@@ -45,17 +45,8 @@ interface AgentMetric {
   status: "completed" | "running" | "pending" | "failed";
 }
 
-const revenueData = [
-  { day: "Mon", value: 8200, height: 55 },
-  { day: "Tue", value: 9400, height: 65 },
-  { day: "Wed", value: 7800, height: 50 },
-  { day: "Thu", value: 9100, height: 62 },
-  { day: "Fri", value: 9500, height: 68 },
-  { day: "Sat", value: 7200, height: 45 },
-  { day: "Sun", value: 6100, height: 38 },
-];
-
-function formatCurrency(n: number) {
+function formatCurrency(n: number | null | undefined) {
+  if (n === null || n === undefined || isNaN(n) || !isFinite(n)) return "₹0.00";
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
@@ -66,30 +57,34 @@ export default function AnalyticsManagerPage() {
   const { summary: billingSummary } = useBilling();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [backendMetrics, setBackendMetrics] = useState<any>(null);
 
-  useEffect(() => {
-    async function fetchAnalytics() {
-      if (!clinicId) {
-        setLoading(false);
-        return;
-      }
-      try {
-        setLoading(true);
-        const res = await api.get(`/analytics/dashboard?clinic_id=${clinicId}`);
-        if (res.data) setBackendMetrics(res.data);
-      } catch (e) {
-        console.warn("Could not load backend analytics:", e);
-      } finally {
-        setLoading(false);
-      }
+  const fetchAnalytics = React.useCallback(async () => {
+    if (!clinicId) {
+      setLoading(false);
+      return;
     }
-    fetchAnalytics();
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await api.get(`/analytics/dashboard?clinic_id=${clinicId}`);
+      if (res.data) setBackendMetrics(res.data);
+    } catch (e: any) {
+      console.warn("Could not load backend analytics:", e);
+      setError("Analytics backend sync temporarily unavailable.");
+    } finally {
+      setLoading(false);
+    }
   }, [clinicId]);
 
+  useEffect(() => {
+    fetchAnalytics();
+  }, [fetchAnalytics]);
+
   const mData = backendMetrics?.metrics;
-  const activity: ActivityItem[] = agentLogs.slice(0, 5).map((log, idx) => ({
+  const activity: ActivityItem[] = (agentLogs || []).slice(0, 5).map((log, idx) => ({
     id: log.id || `an_${idx}`,
     time: log.created_at ? new Date(log.created_at.toDate?.() || log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Now",
     agent: log.agent_name,
@@ -97,41 +92,50 @@ export default function AnalyticsManagerPage() {
     message: log.decision_made,
     status: log.success === false ? "failed" : "completed"
   }));
+
+  const noShowRatePct = React.useMemo(() => {
+    if (!mData?.total_appointments || mData.total_appointments === 0) return "0.0%";
+    const val = ((mData.no_show_count || 0) / mData.total_appointments) * 100;
+    return isNaN(val) || !isFinite(val) ? "0.0%" : `${val.toFixed(1)}%`;
+  }, [mData]);
+
   const metrics: Metric[] = [
-    { label: "Patients Today", value: String(mData?.total_appointments ?? 24), change: "+8% vs yesterday", trend: "up", icon: Users, color: "teal" },
-    { label: "Consultations", value: String(mData?.completed_consultations ?? 18), change: `${mData?.no_show_count ?? 2} no-shows`, trend: "up", icon: Stethoscope, color: "blue" },
-    { label: "Revenue Today", value: billingSummary ? formatCurrency(billingSummary.total_collected_rupees) : "₹9,500", change: "+18% this week", trend: "up", icon: Coins, color: "orange" },
-    { label: "Completion Rate", value: mData?.completion_rate_pct ? `${mData.completion_rate_pct}%` : "90%", change: "SLA met", trend: "neutral", icon: CheckCircle2, color: "green" },
-    { label: "Avg AI Latency", value: mData?.avg_ai_latency_ms ? `${mData.avg_ai_latency_ms}ms` : `${platform?.avg_latency_ms || 620}ms`, change: "Vertex AI", trend: "up", icon: Clock, color: "teal" },
-    { label: "AI Decisions", value: String(mData?.agent_decisions_count ?? platform?.total_tasks_today ?? agentLogs.length ?? 92), change: "7 agents live", trend: "up", icon: BrainCircuit, color: "blue" },
+    { label: "Patients Today", value: mData?.total_appointments !== undefined ? String(mData.total_appointments) : "0", change: "Live queue", trend: "neutral", icon: Users, color: "teal" },
+    { label: "Consultations", value: mData?.completed_consultations !== undefined ? String(mData.completed_consultations) : "0", change: `${mData?.no_show_count ?? 0} no-shows`, trend: "neutral", icon: Stethoscope, color: "blue" },
+    { label: "Revenue Today", value: billingSummary ? formatCurrency(billingSummary.total_collected_rupees) : "₹0.00", change: "Live collections", trend: "neutral", icon: Coins, color: "orange" },
+    { label: "Completion Rate", value: mData?.completion_rate_pct !== undefined ? `${mData.completion_rate_pct}%` : "0%", change: "Live SLA", trend: "neutral", icon: CheckCircle2, color: "green" },
+    { label: "Avg AI Latency", value: mData?.avg_ai_latency_ms !== undefined && mData.avg_ai_latency_ms > 0 ? `${mData.avg_ai_latency_ms}ms` : platform?.avg_latency_ms ? `${platform.avg_latency_ms}ms` : "No Data Available", change: "Vertex AI", trend: "neutral", icon: Clock, color: "teal" },
+    { label: "AI Decisions", value: String(mData?.agent_decisions_count ?? platform?.total_tasks_today ?? agentLogs?.length ?? 0), change: "7 agents live", trend: "neutral", icon: BrainCircuit, color: "blue" },
   ];
 
-  const displayAgentMetrics: AgentMetric[] = liveAgentHealth.length > 0
-    ? liveAgentHealth.map(a => ({
-        agent: a.name,
-        decisions: a.tasks_today,
-        avgLatency: `${(a.avg_latency_ms / 1000).toFixed(1)}s`,
-        successRate: a.success_rate_pct,
-        status: a.status === "running" ? "running" : a.failures_today > 0 ? "failed" : "completed"
-      }))
-    : [
-        { agent: "ClinicalScribe", decisions: 18, avgLatency: "1.4s", successRate: 99, status: "running" },
-        { agent: "PrescriptionSafe", decisions: 18, avgLatency: "0.3s", successRate: 100, status: "completed" },
-        { agent: "BillingPulse", decisions: 18, avgLatency: "0.5s", successRate: 100, status: "running" },
-        { agent: "RetentionRadar", decisions: 8, avgLatency: "2.1s", successRate: 96, status: "running" },
-        { agent: "InsightEngine", decisions: 12, avgLatency: "1.8s", successRate: 98, status: "running" },
-        { agent: "AppointmentFlow", decisions: 24, avgLatency: "0.2s", successRate: 100, status: "completed" },
-        { agent: "ReferralCoordinator", decisions: 3, avgLatency: "0.9s", successRate: 100, status: "completed" },
-      ];
+  const displayAgentMetrics: AgentMetric[] = liveAgentHealth.map(a => ({
+    agent: a.name,
+    decisions: a.tasks_today,
+    avgLatency: a.avg_latency_ms ? `${(a.avg_latency_ms / 1000).toFixed(1)}s` : "0s",
+    successRate: a.success_rate_pct,
+    status: a.status === "running" ? "running" : a.failures_today > 0 ? "failed" : "completed"
+  }));
+
+  const revenueData = React.useMemo(() => {
+    const upi = billingSummary?.upi_collected_rupees || 0;
+    const cash = billingSummary?.cash_collected_rupees || 0;
+    const total = billingSummary?.total_collected_rupees || 0;
+    const maxVal = Math.max(total, 1000);
+    return [
+      { day: "Cash", value: cash, height: Math.max(10, Math.round((cash / maxVal) * 100)) },
+      { day: "UPI", value: upi, height: Math.max(10, Math.round((upi / maxVal) * 100)) },
+      { day: "Total", value: total, height: Math.max(10, Math.round((total / maxVal) * 100)) },
+    ];
+  }, [billingSummary]);
 
   const handleGenerateReport = async () => {
     setIsGenerating(true);
     try {
-      const res = await api.post(`/analytics/generate-report?clinic_id=${clinicId || "cln_e2e_test_clinic"}`);
-      toast("Agent 6 (InsightEngine) executive report generated successfully.", "success");
+      const res = await api.post(`/analytics/generate-report?clinic_id=${clinicId}`);
+      toast("InsightEngine executive report generated successfully.", "success");
       if (res.data) setBackendMetrics(res.data);
     } catch (e) {
-      toast("Agent 6 executive report generated (dev mode fallback).", "info");
+      toast("Report generation failed — could not reach the InsightEngine service.", "error");
     } finally {
       setIsGenerating(false);
     }
@@ -167,7 +171,7 @@ export default function AnalyticsManagerPage() {
           <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
             <BarChart3 className="w-6 h-6 text-teal-400" /> Practice Intelligence
           </h1>
-          <p className="text-sm text-foreground-subtle">Manager view • Today, 25-Jul-2026</p>
+          <p className="text-sm text-foreground-subtle">Manager view • {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</p>
         </div>
         <div className="flex items-center gap-3">
           <AIStatus state="completed" label="InsightEngine Ready" />
@@ -279,15 +283,15 @@ export default function AnalyticsManagerPage() {
               <ul className="mt-3 space-y-2">
                 <li className="flex items-start gap-2 text-sm text-foreground-muted">
                   <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
-                  Revenue up 18% week-over-week from automated UPI links.
+                  {billingSummary?.total_collected_rupees ? `₹${billingSummary.total_collected_rupees.toLocaleString('en-IN')} revenue collected today via BillingPulse.` : "No revenue collected yet today."}
                 </li>
                 <li className="flex items-start gap-2 text-sm text-foreground-muted">
                   <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
-                  Documentation time reduced from 14m to 4.2m per consult.
+                  {mData?.completed_consultations ? `${mData.completed_consultations} consultations signed and processed by ClinicalScribe.` : "0 consultations completed today."}
                 </li>
                 <li className="flex items-start gap-2 text-sm text-foreground-muted">
                   <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
-                  98% patient satisfaction via post-visit WhatsApp surveys.
+                  {platform?.total_tasks_today ? `${platform.total_tasks_today} autonomous agent decisions logged with ${platform.health_pct}% platform health.` : "No agent decisions logged today."}
                 </li>
               </ul>
             </Panel>
@@ -296,15 +300,15 @@ export default function AnalyticsManagerPage() {
               <ul className="mt-3 space-y-2">
                 <li className="flex items-start gap-2 text-sm text-foreground-muted">
                   <AlertTriangle className="w-4 h-4 text-orange-400 mt-0.5 shrink-0" />
-                  Evening 6 PM peak shows +8 minute wait times.
+                  {mData?.no_show_count ? `${mData.no_show_count} patient no-shows detected today requiring RetentionRadar outreach.` : "Zero patient no-shows recorded today."}
                 </li>
                 <li className="flex items-start gap-2 text-sm text-foreground-muted">
                   <AlertTriangle className="w-4 h-4 text-orange-400 mt-0.5 shrink-0" />
-                  12 chronic patients overdue for diabetic eye screening.
+                  {billingSummary?.pending_rupees ? `₹${billingSummary.pending_rupees.toLocaleString('en-IN')} pending uncollected invoice balance.` : "Zero uncollected invoice balance today."}
                 </li>
                 <li className="flex items-start gap-2 text-sm text-foreground-muted">
                   <AlertTriangle className="w-4 h-4 text-orange-400 mt-0.5 shrink-0" />
-                  Manual lab result entry delays record completion by 45m.
+                  {platform?.total_failures_today ? `${platform.total_failures_today} agent execution failures today.` : "Zero agent failures detected across workforce."}
                 </li>
               </ul>
             </Panel>
@@ -325,21 +329,15 @@ export default function AnalyticsManagerPage() {
                 <p className="text-sm font-semibold text-foreground">AI Health Score</p>
                 <div className="flex items-center gap-2 mt-1">
                   <div className="flex-1 h-2 rounded-full bg-background-input overflow-hidden">
-                    <div className="h-full bg-teal-500 rounded-full" style={{ width: "94%" }} />
+                    <div className="h-full bg-teal-500 rounded-full" style={{ width: `${backendMetrics?.health_score ?? platform?.health_pct ?? 0}%` }} />
                   </div>
-                  <span className="text-sm font-bold text-teal-400">94</span>
+                  <span className="text-sm font-bold text-teal-400">{backendMetrics?.health_score ?? platform?.health_pct ?? 0}%</span>
                 </div>
               </div>
               <div className="panel p-3 bg-background-elevated/50 border border-border">
                 <p className="text-sm font-semibold text-foreground">Top Recommendation</p>
                 <p className="text-xs text-foreground-subtle mt-1">
-                  Add 10 AM slot buffer for high-risk diabetic walk-ins.
-                </p>
-              </div>
-              <div className="panel p-3 bg-background-elevated/50 border border-border">
-                <p className="text-sm font-semibold text-foreground">Care Gap</p>
-                <p className="text-xs text-foreground-subtle mt-1">
-                  Order quarterly HbA1c panels for 14 patients due next week.
+                  {backendMetrics?.metrics?.completion_rate_pct ? `Maintain SLA level (${backendMetrics.metrics.completion_rate_pct}% completion rate).` : "Awaiting clinical activity data."}
                 </p>
               </div>
             </div>
@@ -354,20 +352,16 @@ export default function AnalyticsManagerPage() {
             <SectionHeader icon={Users} title="Patient Demographics" />
             <div className="mt-3 space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-foreground-subtle">New today</span>
-                <span className="font-medium text-foreground">4</span>
+                <span className="text-foreground-subtle">Total Today</span>
+                <span className="font-medium text-foreground">{mData?.total_appointments ?? 0}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-foreground-subtle">Follow-up</span>
-                <span className="font-medium text-foreground">20</span>
+                <span className="text-foreground-subtle">Completed</span>
+                <span className="font-medium text-foreground">{mData?.completed_consultations ?? 0}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-foreground-subtle">No-show rate</span>
-                <span className="font-medium text-orange-400">4.1%</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-foreground-subtle">Compliance</span>
-                <span className="font-medium text-green-400">88.5%</span>
+                <span className="font-medium text-foreground">{noShowRatePct}</span>
               </div>
             </div>
           </Panel>

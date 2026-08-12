@@ -1,5 +1,5 @@
 import axios from "axios";
-import { firebaseAuth } from "./firebase";
+import { getFirebaseAuth } from "./firebase";
 import { BACKEND_URL } from "./constants";
 import { logout, isDevAuthBypassEnabled } from "./auth";
 
@@ -22,21 +22,20 @@ api.interceptors.request.use(async (config) => {
   if (url.includes("/export-") || url.includes("/generate-report")) {
     config.timeout = 30000; // 30s for heavy exports
   } else if (url.includes("/transcribe") || url.includes("/check-safety") || url.includes("/referral")) {
-    config.timeout = 15000; // 15s for AI operations
+    config.timeout = 60000; // 60s for live multi-modal STT & Gemini 2.5 Pro reasoning
   } else if (config.method?.toUpperCase() === "GET") {
     config.timeout = 5000; // 5s for fast read operations
   }
 
-  if (typeof window !== "undefined") {
-    const user = firebaseAuth?.currentUser;
+  if (isDevAuthBypassEnabled()) {
+    config.headers.Authorization = `Bearer dev_mock_id_token`;
+  } else if (typeof window !== "undefined") {
+    const auth = getFirebaseAuth();
+    const user = auth?.currentUser;
     if (user) {
       const token = await user.getIdToken();
       config.headers.Authorization = `Bearer ${token}`;
-    } else if (isDevAuthBypassEnabled()) {
-      config.headers.Authorization = `Bearer dev_mock_id_token`;
     }
-  } else if (isDevAuthBypassEnabled()) {
-    config.headers.Authorization = `Bearer dev_mock_id_token`;
   }
   return config;
 }, (error) => {
@@ -49,7 +48,13 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const config = error?.config;
 
-    if (status === 401 || status === 403) {
+    if (
+      (status === 401 || status === 403) &&
+      !isDevAuthBypassEnabled() &&
+      !config?.url?.includes("/clinics/dev-provision") &&
+      !config?.url?.includes("/clinics/setup")
+    ) {
+      console.warn(`[VaidyaAI API Interceptor] 401/403 Unauthorized on ${config?.url}. Triggering sign-out.`);
       logout();
       return Promise.reject(error);
     }

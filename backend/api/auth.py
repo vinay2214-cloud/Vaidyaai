@@ -3,11 +3,30 @@ import hmac
 import logging
 from typing import Dict, Any, Optional
 from fastapi import Depends, HTTPException, Header, status
-from firebase_admin import auth as firebase_auth
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth
 
 from config import settings
 
 logger = logging.getLogger("vaidyaai.api.auth")
+
+
+def ensure_firebase_admin_initialized():
+    if not firebase_admin._apps:
+        try:
+            cred = credentials.ApplicationDefault()
+            firebase_admin.initialize_app(cred, {
+                'projectId': settings.FIREBASE_PROJECT_ID
+            })
+            logger.info("Firebase Admin SDK initialized in auth module with ApplicationDefault credentials")
+        except Exception:
+            try:
+                firebase_admin.initialize_app(options={
+                    'projectId': settings.FIREBASE_PROJECT_ID
+                })
+                logger.info(f"Firebase Admin SDK initialized in auth module for project '{settings.FIREBASE_PROJECT_ID}'")
+            except Exception as e:
+                logger.warning(f"Firebase Admin SDK init notice in auth module: {e}")
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
@@ -30,8 +49,19 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
     
     token = authorization.replace("Bearer ", "").strip()
 
+    # Security gate: reject dev tokens in production with CRITICAL alert
+    if token.startswith("dev_") and settings.is_production:
+        logger.critical(f"SECURITY: Dev authentication token attempted in production from {token[:8]}***")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials"
+        )
+
     # Development-only authentication path (STRICTLY disabled when ENVIRONMENT=production)
-    if settings.is_development and token in ("dev_mock_id_token", "dev_token", "dev_mock_token"):
+    if settings.is_development and not settings.is_production and (
+        token in ("dev_mock_id_token", "dev_token", "dev_mock_token") or
+        token.startswith("dev_")
+    ):
         logger.info("Development authentication token recognized. Returning dev doctor context.")
         return {
             "uid": "dev_doctor_001",
@@ -40,18 +70,20 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
             "phone": "+919876543210"
         }
 
+    ensure_firebase_admin_initialized()
+
     try:
         # Non-blocking execution of synchronous network call
         decoded = await asyncio.to_thread(firebase_auth.verify_id_token, token)
-    except firebase_auth.InvalidIdTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or malformed authentication token"
-        )
     except firebase_auth.ExpiredIdTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication token has expired"
+        )
+    except firebase_auth.InvalidIdTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or malformed authentication token"
         )
     except Exception as e:
         logger.error(f"Authentication failure: {e}")
@@ -60,11 +92,27 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
             detail="Could not validate authentication credentials"
         )
     
+    uid = decoded["uid"]
     clinic_id = decoded.get("clinic_id")
+    role = decoded.get("role")
+
+    if not clinic_id:
+        # Fallback: Look up server-side clinic membership in Firestore clinic_users/{uid}
+        # to handle propagation delays or tokens minted before custom claims were set.
+        try:
+            from database.firestore import get_document
+            user_doc = await get_document("clinic_users", uid)
+            if user_doc and user_doc.get("clinic_id"):
+                clinic_id = user_doc.get("clinic_id")
+                role = user_doc.get("role", "doctor")
+                logger.info(f"Resolved clinic membership '{clinic_id}' for uid '{uid}' via Firestore clinic_users")
+        except Exception as e:
+            logger.warning(f"Firestore clinic membership lookup warning for {uid}: {e}")
+
     return {
-        "uid": decoded["uid"],
+        "uid": uid,
         "clinic_id": clinic_id,
-        "role": decoded.get("role", "doctor"),
+        "role": role or "doctor",
         "phone": decoded.get("phone_number")
     }
 

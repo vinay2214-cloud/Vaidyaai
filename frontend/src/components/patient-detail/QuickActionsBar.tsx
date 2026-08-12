@@ -33,7 +33,7 @@ export const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       // 1. Create walk-in/appointment entry for patient
       const apptRes = await api.post("/appointments/walk-in", {
         clinic_id: clinicId,
-        patient_phone: patientId,
+        patient_id: patientId,
         complaint_summary: "Follow-up Consultation",
         consultation_type: "followup"
       });

@@ -38,6 +38,9 @@ class ReferralCoordinatorAgent(BaseAgent):
         soap_note = consultation.get("soap_note", {})
         diagnoses = consultation.get("diagnoses", [])
 
+        clinic_doc = await get_document("clinics", clinic_id) or {}
+        doctor_name = clinic_doc.get("doctor_name", "Doctor")
+
         prompt = build_referral_extraction_prompt(
             soap_note=soap_note,
             diagnoses=diagnoses,
@@ -46,17 +49,18 @@ class ReferralCoordinatorAgent(BaseAgent):
         # C-7: anonymise any residual PHI before the payload leaves for the LLM.
         prompt = anonymise_for_llm(prompt)
 
+        from config import settings
         referral_res, latency_ms = await self._timed_gemini_json_call(
             task="referral_extraction",
             prompt=prompt,
-            model="gemini-1.5-flash"
+            model=settings.GEMINI_REASONING_MODEL
         )
 
         target_speciality = speciality or referral_res.get("speciality", "Specialist Consultation")
         urgency = referral_res.get("urgency", "routine")
         referral_letter = referral_res.get(
             "formal_referral_letter",
-            f"Dear Doctor / Colleague,\n\nReferred patient for evaluation regarding {target_speciality}.\n\nThank you,\nDr. Ramesh"
+            f"Dear Doctor / Colleague,\n\nReferred patient for evaluation regarding {target_speciality}.\n\nThank you,\n{doctor_name}"
         )
 
         now_utc = datetime.now(timezone.utc)
@@ -121,7 +125,7 @@ class ReferralCoordinatorAgent(BaseAgent):
             decision_made=f"Generated formal referral to {target_speciality} (Urgency: {urgency})",
             clinic_id=clinic_id,
             consultation_id=consultation_id,
-            model_used="gemini-1.5-flash",
+            model_used=settings.GEMINI_REASONING_MODEL,
             latency_ms=latency_ms
         )
 

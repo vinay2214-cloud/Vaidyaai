@@ -4,6 +4,7 @@ from abc import ABC
 from typing import Tuple, Dict, Any, Optional
 from services.gemini import GeminiService
 from utils.agent_logger import AgentLogger
+from config import settings
 
 
 class BaseAgent(ABC):
@@ -26,17 +27,18 @@ class BaseAgent(ABC):
         task: str,
         prompt: str,
         system_prompt: Optional[str] = None,
-        model: str = "gemini-1.5-flash"
+        model: Optional[str] = None
     ) -> Tuple[str, int]:
         """Call Gemini text generation and return (response_text, latency_ms)."""
+        target_model = model or settings.GEMINI_FAST_MODEL
         start = time.monotonic()
         result = await self.gemini.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model=model
+            model=target_model
         )
         latency_ms = int((time.monotonic() - start) * 1000)
-        self.log.info(f"{task} | latency={latency_ms}ms | model={model}")
+        self.log.info(f"{task} | latency={latency_ms}ms | model={target_model}")
         return result, latency_ms
 
     async def _timed_gemini_json_call(
@@ -44,15 +46,16 @@ class BaseAgent(ABC):
         task: str,
         prompt: str,
         system_prompt: Optional[str] = None,
-        model: str = "gemini-1.5-flash"
+        model: Optional[str] = None
     ) -> Tuple[Dict[str, Any], int]:
         """Call Gemini JSON generation and return (response_dict, latency_ms)."""
+        target_model = model or settings.GEMINI_FAST_MODEL
         start = time.monotonic()
         result = await self.gemini.generate_json(
             prompt=prompt,
             system_prompt=system_prompt,
-            model=model
+            model=target_model
         )
         latency_ms = int((time.monotonic() - start) * 1000)
-        self.log.info(f"{task} (JSON) | latency={latency_ms}ms | model={model}")
+        self.log.info(f"{task} (JSON) | latency={latency_ms}ms | model={target_model}")
         return result, latency_ms

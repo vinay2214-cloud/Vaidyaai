@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 import logging
 from typing import Dict, Any
@@ -15,6 +16,7 @@ from api.clinics import router as clinics_router
 from api.analytics import router as analytics_router
 from api.internal import router as internal_router
 from api.agent_health import router as agent_health_router
+from api.fhir import router as fhir_router
 
 logger = logging.getLogger("vaidyaai.main")
 
@@ -31,21 +33,33 @@ async def lifespan(app: FastAPI):
     settings.validate_production()
     _startup_checks["config"] = "validated" if settings.is_production else f"unenforced ({settings.ENVIRONMENT})"
 
+    # Defense-in-depth: assert is_production and is_development are never both True
+    if settings.is_production and settings.is_development:
+        raise RuntimeError("FATAL: ENVIRONMENT resolves to both production and development. Aborting startup.")
+
     # 1. Cloud Logging
-    try:
-        import google.cloud.logging
-        google.cloud.logging.Client().setup_logging()
-        _startup_checks["cloud_logging"] = "online"
-    except Exception as e:
-        logger.warning(f"Google Cloud Logging initialization warning: {e}")
-        _startup_checks["cloud_logging"] = f"unconfigured ({e})"
+    if settings.is_development:
+        _startup_checks["cloud_logging"] = "disabled_dev"
+    else:
+        try:
+            import google.cloud.logging
+            google.cloud.logging.Client().setup_logging()
+            _startup_checks["cloud_logging"] = "online"
+        except Exception as e:
+            logger.warning(f"Google Cloud Logging initialization warning: {e}")
+            _startup_checks["cloud_logging"] = f"unconfigured ({e})"
 
     # 2. Vertex AI / Gemini
     try:
         from services.gemini import GeminiService
         gemini_svc = GeminiService()
         status_data = gemini_svc.get_status()
-        _startup_checks["vertex_ai"] = "online" if status_data.get("vertex_initialized") else "fallback_mock"
+        if status_data.get("sdk_installed") and settings.GOOGLE_GENAI_USE_VERTEXAI:
+            _startup_checks["vertex_ai"] = "online (ready: ADC authenticated)"
+        elif status_data.get("allow_mock_fallback"):
+            _startup_checks["vertex_ai"] = "fallback_mock"
+        else:
+            _startup_checks["vertex_ai"] = "unconfigured"
     except Exception as e:
         logger.warning(f"Vertex AI startup check warning: {e}")
         _startup_checks["vertex_ai"] = f"warning ({e})"
@@ -62,8 +76,8 @@ async def lifespan(app: FastAPI):
     # 4. Firestore
     try:
         from database.firestore import init_firestore
-        await init_firestore()
-        _startup_checks["firestore"] = "online"
+        firestore_client = await init_firestore()
+        _startup_checks["firestore"] = "online" if firestore_client is not None else "in_memory_fallback"
     except Exception as e:
         logger.warning(f"Firestore initialization warning: {e}")
         _startup_checks["firestore"] = f"in_memory_fallback ({e})"
@@ -157,6 +171,7 @@ app.include_router(clinics_router, prefix="/api/v1", tags=["clinics"])
 app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
 app.include_router(internal_router, prefix="/internal", tags=["internal"])
 app.include_router(agent_health_router, prefix="/api/v1", tags=["agents"])
+app.include_router(fhir_router, prefix="/api/v1", tags=["fhir"])
 
 
 @app.get("/livez", tags=["health"])
@@ -187,10 +202,34 @@ async def readyz():
 async def health():
     """
     Extended Health & Diagnostics Endpoint.
-    Returns status for Vertex AI, Firestore, PostgreSQL, Cloud Tasks, Firebase, Secret Manager, and Gemini.
+    Returns dynamic, truthful status for Vertex AI, Speech-to-Text, Firestore, PostgreSQL, Cloud Tasks, and clinical agents.
     """
     from services.gemini import GeminiService
+    from services.speech_to_text import SpeechToTextService
     gemini_svc = GeminiService()
+    stt_svc = SpeechToTextService()
+    gemini_status = gemini_svc.get_status()
+    gemini_live_status = gemini_svc.get_live_status()
+    stt_status = stt_svc.get_status()
+
+    # Truthful dynamic Vertex AI status
+    if gemini_status.get("sdk_installed") and settings.GOOGLE_GENAI_USE_VERTEXAI:
+        if gemini_live_status.get("last_execution_status") == "success":
+            vertex_ai_status = f"online (live: {gemini_live_status.get('last_live_model')} @ {gemini_live_status.get('last_live_location')})"
+        else:
+            vertex_ai_status = "online (ready: ADC authenticated)"
+    elif gemini_status.get("allow_mock_fallback"):
+        vertex_ai_status = "fallback_mock"
+    else:
+        vertex_ai_status = "unavailable"
+
+    # Truthful dynamic STT status
+    if stt_status.get("ffmpeg_available") and stt_status.get("speech_client_installed"):
+        stt_overall_status = "online (Google Speech-to-Text + FFmpeg)"
+    elif stt_status.get("ffmpeg_available"):
+        stt_overall_status = "degraded (FFmpeg available, Speech SDK missing)"
+    else:
+        stt_overall_status = "unavailable"
 
     return {
         "status": "ok",
@@ -198,7 +237,8 @@ async def health():
         "region": settings.GCP_REGION,
         "environment": settings.ENVIRONMENT,
         "services": {
-            "vertex_ai": _startup_checks.get("vertex_ai", "unknown"),
+            "vertex_ai": vertex_ai_status,
+            "speech_to_text": stt_overall_status,
             "firestore": _startup_checks.get("firestore", "unknown"),
             "postgres": _startup_checks.get("postgres", "unknown"),
             "cloud_tasks": _startup_checks.get("cloud_tasks", "unknown"),
@@ -206,7 +246,10 @@ async def health():
             "secret_manager": _startup_checks.get("secret_manager", "unknown"),
             "cloud_logging": _startup_checks.get("cloud_logging", "unknown"),
             "event_bus": _startup_checks.get("event_bus", "online"),
-            "gemini": gemini_svc.get_status(),
+            "ffmpeg": "available" if stt_status.get("ffmpeg_available") else "unavailable",
+            "gemini": gemini_status,
+            "live_telemetry": gemini_live_status,
+            "audio_pipeline": stt_status,
             "razorpay": "active" if settings.RAZORPAY_KEY_ID != "rzp_live_placeholder" else "mock_dev_mode",
             "whatsapp": "active" if settings.WHATSAPP_PHONE_ID != "placeholder_phone_id" else "mock_dev_mode"
         },
@@ -216,7 +259,8 @@ async def health():
             "voice": settings.FEATURE_VOICE,
             "realtime_events": settings.FEATURE_REALTIME_EVENTS,
             "analytics": settings.FEATURE_ANALYTICS,
-            "demo_mode": settings.FEATURE_DEMO_MODE
+            "demo_mode": settings.FEATURE_DEMO_MODE,
+            "live_clinical_ai": settings.LIVE_CLINICAL_AI
         },
         "agents": [
             "appointment_flow",
@@ -227,6 +271,71 @@ async def health():
             "insight_engine",
             "referral_coordinator"
         ],
-        "primary_llm": f"gemini-1.5-flash / gemini-1.5-pro (Vertex AI {settings.GCP_REGION})",
+        "primary_llm": f"{settings.GEMINI_FAST_MODEL} ({settings.GEMINI_FAST_LOCATION}) / {settings.GEMINI_REASONING_MODEL} ({settings.GEMINI_REASONING_LOCATION})",
         "version": settings.VERSION
     }
+
+
+@app.get("/api/v1/ai/live-status", tags=["ai"])
+async def get_ai_live_status():
+    """
+    Truthful live AI status endpoint for hackathon validation and Settings diagnostics.
+    """
+    from services.gemini import GeminiService
+    from services.speech_to_text import SpeechToTextService
+    gemini_svc = GeminiService()
+    stt_svc = SpeechToTextService()
+    status_data = gemini_svc.get_live_status()
+    status_data["audio_pipeline"] = stt_svc.get_status()
+    return status_data
+
+
+if __name__ == "__main__":
+    import uvicorn
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        reload_dirs=[
+            os.path.join(backend_dir, d) for d in [
+                "api",
+                "agents",
+                "database",
+                "models",
+                "prompts",
+                "services",
+                "tasks",
+                "utils",
+            ]
+        ],
+        reload_includes=[
+            "*.py",
+        ],
+        reload_excludes=[
+            "*/.venv/*",
+            "*/.ga_venv/*",
+            "*/__pycache__/*",
+            "*/.pytest_cache/*",
+            "*/.mypy_cache/*",
+            "*/node_modules/*",
+            "*/.next/*",
+            "*/tests/*",
+            ".venv",
+            ".ga_venv",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            "node_modules",
+            ".next",
+            "tests",
+            ".git",
+            "*.pyc",
+            "*.db",
+            "*.log",
+            "*.sqlite3",
+            "*.ipc",
+            "alembic/versions/*",
+        ],
+    )

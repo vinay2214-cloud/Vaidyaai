@@ -55,7 +55,7 @@
 
 **VaidyaAI** is an event-driven, 7-agent AI workforce platform purpose-built for solo and small clinic doctors across Tier-2 and Tier-3 cities in India. It autonomously handles appointment booking, clinical documentation, prescription safety, billing, patient retention, specialist referrals, and practice analytics — allowing doctors to focus entirely on patient care.
 
-The platform is built on **Google Cloud Platform (asia-south1, Mumbai)**, powered by **Vertex AI (Gemini 1.5 Flash & Pro)**, and delivers its intelligence through a modern **Next.js 14** doctor dashboard and **Meta WhatsApp Cloud API** for patient communication.
+The platform is built on **Google Cloud Platform (asia-south1 & us-central1)**, powered by **Vertex AI (Gemini 2.5 Flash & Pro)**, and delivers its intelligence through a modern **Next.js 14** doctor dashboard and **Meta WhatsApp Cloud API** for patient communication.
 
 > **Note:** VaidyaAI is currently in **Release Candidate** stage. It has passed all automated quality gates (39 pytest tests, ESLint, Next.js production build, and 7-agent E2E journey test) but has not yet undergone formal compliance certification for healthcare regulations such as HIPAA, GDPR, or NABH.
 
@@ -153,7 +153,7 @@ graph TB
     end
 
     subgraph "External Services"
-        VAI["Vertex AI<br/>Gemini 1.5 Flash & Pro"]
+        VAI["Vertex AI<br/>Gemini 2.5 Flash & Pro"]
         RZP["Razorpay<br/>UPI Payment Links"]
         META["Meta WhatsApp<br/>Cloud API"]
         CT["Cloud Tasks<br/>3 Queues"]
@@ -303,13 +303,13 @@ graph TD
 
 | # | Agent | Model | Purpose | Key Inputs | Key Outputs |
 |---|---|---|---|---|---|
-| 1 | **AppointmentFlow** | Gemini 1.5 Flash | WhatsApp appointment booking, rescheduling, cancellation, emergency redirection | Incoming WhatsApp message, clinic schedule | Intent classification, booking confirmation, Cloud Tasks reminders |
-| 2 | **ClinicalScribe** | Gemini 1.5 Pro | Ambient audio transcription, SOAP note generation with ICD-10 coding | Audio chunks, vitals, patient history | Structured SOAP note, diagnoses, medications, investigations |
+| 1 | **AppointmentFlow** | Gemini 2.5 Flash | WhatsApp appointment booking, rescheduling, cancellation, emergency redirection | Incoming WhatsApp message, clinic schedule | Intent classification, booking confirmation, Cloud Tasks reminders |
+| 2 | **ClinicalScribe** | Gemini 2.5 Pro | Ambient audio transcription, SOAP note generation with ICD-10 coding | Audio chunks, vitals, patient history | Structured SOAP note, diagnoses, medications, investigations |
 | 3 | **BillingPulse** | — | Invoice generation, Razorpay UPI payment links, daily P&L summaries | Consultation approval, fee schedule | Invoice record, payment link, WhatsApp delivery |
-| 4 | **RetentionRadar** | Gemini 1.5 Flash | Chronic disease follow-up tracking, missed appointment recovery | Patient consultations, follow-up schedules | Regional language outreach messages (Telugu, Hindi, Tamil, English) |
-| 5 | **PrescriptionSafe** | Gemini 1.5 Flash | Drug-drug interaction checks, allergy conflict detection | Medication list, patient allergies, age | Safety verdict (CRITICAL/HIGH/MEDIUM/LOW), warnings |
-| 6 | **InsightEngine** | Gemini 1.5 Flash | Practice Health Score (0-100), weekly growth recommendations | Clinic metrics, billing data | Executive summary, recommendations, WhatsApp report |
-| 7 | **ReferralCoordinator** | Gemini 1.5 Flash | Specialist referral extraction from SOAP notes, formal letter drafting | SOAP note content, diagnoses | Referral letter, urgency level, lab order tracking |
+| 4 | **RetentionRadar** | Gemini 2.5 Flash | Chronic disease follow-up tracking, missed appointment recovery | Patient consultations, follow-up schedules | Regional language outreach messages (Telugu, Hindi, Tamil, English) |
+| 5 | **PrescriptionSafe** | Gemini 2.5 Pro | Drug-drug interaction checks, allergy conflict detection | Medication list, patient allergies, age | Safety verdict (CRITICAL/HIGH/MEDIUM/LOW), warnings |
+| 6 | **InsightEngine** | Gemini 2.5 Flash | Practice Health Score (0-100), weekly growth recommendations | Clinic metrics, billing data | Executive summary, recommendations, WhatsApp report |
+| 7 | **ReferralCoordinator** | Gemini 2.5 Flash | Specialist referral extraction from SOAP notes, formal letter drafting | SOAP note content, diagnoses | Referral letter, urgency level, lab order tracking |
 
 ---
 
@@ -324,7 +324,7 @@ graph TD
 | ORM | SQLAlchemy 2.0 (async) | PostgreSQL object mapping |
 | Relational DB | Cloud SQL PostgreSQL 15 | Invoices, clinics, P&L, referrals |
 | Document DB | Firestore (Native mode) | Patients, appointments, consultations, agent logs |
-| AI/ML | Vertex AI (Gemini 1.5 Flash & Pro) | Intent detection, SOAP generation, safety checks |
+| AI/ML | Vertex AI (Gemini 2.5 Flash & Pro) | Intent detection, SOAP generation, safety checks |
 | Speech | Google Cloud Speech-to-Text | Ambient audio transcription |
 | Auth | Firebase Admin SDK | JWT verification, custom claims |
 | Payments | Razorpay API | UPI payment link generation |

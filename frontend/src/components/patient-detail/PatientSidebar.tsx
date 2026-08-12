@@ -1,48 +1,54 @@
 "use client";
 
 import React from "react";
+import { useParams } from "next/navigation";
+import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { useAgentHealth } from "@/hooks/useAgentHealth";
 import { Panel, SectionHeader, ActivityFeed, ActivityItem, AIStatus } from "@/components/design-system";
 import { Cpu, Bot, Activity } from "lucide-react";
 
+const agentColorMap: Record<string, "teal" | "blue" | "orange" | "red" | "green" | "gray"> = {
+  appointment_flow: "blue",
+  clinical_scribe: "teal",
+  billing_pulse: "green",
+  retention_radar: "orange",
+  prescription_safe: "red",
+  insight_engine: "teal",
+  referral_coordinator: "blue",
+};
+
 export const PatientSidebar: React.FC = () => {
-  const decisions: ActivityItem[] = [
-    {
-      id: "dec_1",
-      time: "10:20",
-      agent: "ClinicalScribe",
-      agentColor: "teal",
-      message: "Generated SOAP note & ICD-10 diagnoses for Type-2 Diabetes consult.",
-      status: "completed",
-      details: "gemini-1.5-pro • 1450ms",
-    },
-    {
-      id: "dec_2",
-      time: "10:22",
-      agent: "PrescriptionSafe",
-      agentColor: "red",
-      message: "Audited prescription regimen: Metformin 500mg (0 conflicts).",
-      status: "completed",
-      details: "gemini-1.5-flash • 290ms",
-    },
-    {
-      id: "dec_3",
-      time: "10:23",
-      agent: "InsightEngine",
-      agentColor: "teal",
-      message: "Updated longitudinal summary & flagged care gaps.",
-      status: "completed",
-      details: "gemini-1.5-pro • 1200ms",
-    },
-    {
-      id: "dec_4",
-      time: "10:25",
-      agent: "RetentionRadar",
-      agentColor: "orange",
-      message: "Scheduled 30-day follow-up outreach.",
-      status: "running",
-      details: "WhatsApp Cloud API • English / Hindi",
-    },
-  ];
+  const params = useParams();
+  const patientId = params?.id as string;
+  const { logs } = useAgentLogs();
+  const { platform } = useAgentHealth();
+
+  // Filter logs for this specific patient if patientId is present
+  const filteredLogs = logs
+    .filter((log) => !patientId || log.patient_id === patientId || log.consultation_id?.includes(patientId))
+    .slice(0, 5);
+
+  const decisions: ActivityItem[] = filteredLogs.map((log, index) => {
+    const key = log.agent_name.toLowerCase().replace(/\s/g, "_").replace(/agent_\d+:/, "").trim();
+    return {
+      id: log.id || `dec_${index}`,
+      time: log.created_at
+        ? new Date(log.created_at.toDate?.() || log.created_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false })
+        : "--:--",
+      agent: log.agent_name,
+      agentColor: agentColorMap[key] || "gray",
+      message: log.decision_made,
+      status: log.success === false ? "failed" : "completed",
+      details: log.model_used ? `${log.model_used} • ${log.latency_ms}ms` : undefined,
+    };
+  });
+
+  const activeAgentsCount = platform?.active_agents ?? 7;
+  const totalAgentsCount = platform?.total_agents ?? 7;
+  const totalDecisions = logs.length;
+  const avgLatency = platform?.avg_latency_ms || (logs.length > 0
+    ? Math.round(logs.reduce((acc, log) => acc + (log.latency_ms || 0), 0) / logs.length)
+    : 0);
 
   return (
     <aside className="space-y-4">
@@ -86,7 +92,7 @@ export const PatientSidebar: React.FC = () => {
 
       <Panel padding="md">
         <SectionHeader icon={Bot} title="Patient AI Audit Decisions" subtitle="Live" />
-        <ActivityFeed items={decisions} className="mt-4" />
+        <ActivityFeed items={decisions} className="mt-4" emptyMessage="No active decisions for this patient." />
       </Panel>
 
       <Panel padding="md">
@@ -97,15 +103,15 @@ export const PatientSidebar: React.FC = () => {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="text-foreground-muted">Agents Active</span>
-            <span className="font-mono text-green-400">7/7</span>
+            <span className="font-mono text-green-400">{activeAgentsCount}/{totalAgentsCount}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-foreground-muted">Decisions Today</span>
-            <span className="font-mono text-foreground">24</span>
+            <span className="font-mono text-foreground">{totalDecisions}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-foreground-muted">Avg Latency</span>
-            <span className="font-mono text-foreground">620ms</span>
+            <span className="font-mono text-foreground">{avgLatency > 0 ? `${avgLatency}ms` : "No data available"}</span>
           </div>
         </div>
       </Panel>

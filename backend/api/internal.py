@@ -50,11 +50,18 @@ async def execute_internal_task(
     logger.info(f"Received Cloud Task execution request: type={req.task_type}, app_id={req.appointment_id}")
 
     try:
+        if not req.patient_phone:
+            logger.error(f"Cloud Task {req.task_type} rejected: patient_phone is required")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="patient_phone is required for messaging tasks"
+            )
+
         if req.task_type == "t_minus_2h_reminder":
             result = await appointment_agent.send_t_minus_2h_reminder(
                 appointment_id=req.appointment_id,
                 clinic_id=req.clinic_id,
-                patient_phone=req.patient_phone or "+919876543210",
+                patient_phone=req.patient_phone,
                 slot_time_str=req.slot_time_str or "10:00 AM"
             )
             return {"status": "success", "result": result}
@@ -63,7 +70,7 @@ async def execute_internal_task(
             result = await appointment_agent.send_t_plus_24h_wellness_check(
                 appointment_id=req.appointment_id,
                 clinic_id=req.clinic_id,
-                patient_phone=req.patient_phone or "+919876543210"
+                patient_phone=req.patient_phone
             )
             return {"status": "success", "result": result}
 
@@ -85,7 +92,7 @@ async def send_daily_pnl(
     x_cloud_scheduler: Optional[str] = Header(None)
 ):
     logger.info(f"Executing daily P&L summary for clinic {req.clinic_id}")
-    result = await billing_agent.send_daily_pnl_summary(req.clinic_id)
+    result = await billing_agent.send_daily_pnl(req.clinic_id)
     return result
 
 

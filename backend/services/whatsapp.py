@@ -143,6 +143,11 @@ class WhatsAppService:
         pid = phone_id or self.default_phone_id
         token = access_token or self.default_token
         url = f"{WHATSAPP_API_URL}/{pid}/messages"
+
+        if settings.is_development and (
+            not pid or not token or "placeholder" in pid.lower() or "placeholder" in token.lower()
+        ):
+            return self._delivery_failure(to, None)
         
         payload = {
             "messaging_product": "whatsapp",
@@ -156,22 +161,24 @@ class WhatsAppService:
             "Content-Type": "application/json"
         }
         
+        timeout_val = 2.0 if settings.is_development else 10.0
+        max_attempts = 1 if settings.is_development else 3
         async with httpx.AsyncClient() as client:
             last_error: Optional[Exception] = None
-            for attempt in range(3):
+            for attempt in range(max_attempts):
                 try:
-                    r = await client.post(url, headers=headers, json=payload, timeout=10.0)
+                    r = await client.post(url, headers=headers, json=payload, timeout=timeout_val)
                     r.raise_for_status()
                     return r.json()
                 except httpx.HTTPStatusError as e:
                     last_error = e
                     logger.warning(f"WhatsApp API call (attempt {attempt + 1}) returned status {e.response.status_code}.")
-                    if e.response.status_code in [401, 403, 404] or attempt == 2:
+                    if e.response.status_code in [401, 403, 404] or attempt == (max_attempts - 1):
                         return self._delivery_failure(to, last_error)
                 except Exception as e:
                     last_error = e
                     logger.warning(f"WhatsApp API connection error (attempt {attempt + 1}): {e}")
-                    if attempt == 2:
+                    if attempt == (max_attempts - 1):
                         return self._delivery_failure(to, last_error)
 
     def _delivery_failure(self, to: str, error: Optional[Exception]) -> Dict[str, Any]:

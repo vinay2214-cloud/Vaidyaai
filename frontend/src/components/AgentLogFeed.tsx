@@ -14,8 +14,8 @@ export function AgentLogFeed({ logs, loading }: { logs: AgentLog[]; loading: boo
     clinic_id: l.clinic_id,
     input_summary: l.input_summary,
     output_summary: l.output_summary,
-    model_used: l.model_used || "gemini-1.5-flash",
-    latency_ms: l.latency_ms || 850,
+    model_used: l.model_used || "—",
+    latency_ms: l.latency_ms || 0,
     patient_phone_masked: l.patient_phone_masked,
     success: l.success !== false,
     created_at: l.created_at

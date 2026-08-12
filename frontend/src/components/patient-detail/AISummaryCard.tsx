@@ -5,6 +5,37 @@ import { Sparkles, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
 import { Panel, SectionHeader, Badge } from "@/components/design-system";
 import { cn } from "@/lib/cn";
 
+function buildProvenanceSubtitle(summary: AISummaryContent): string {
+  const p = summary.provenance;
+  if (!p) {
+    return `Compiled ${summary.generated_at || "on load"} from patient record (system-generated)`;
+  }
+  const parts: string[] = [];
+  if (p.generated_by && p.generated_by !== "system") {
+    parts.push(p.generated_by);
+  } else {
+    parts.push("system-generated");
+  }
+  if (p.model) {
+    parts.push(p.model);
+  }
+  if (p.source) {
+    parts.push(`source: ${p.source}`);
+  }
+  const when = p.created_at || summary.generated_at || "on load";
+  return `Compiled ${when} — ${parts.join(" • ")}`;
+}
+
+export interface AIProvenance {
+  source: string;
+  generated_by: string;
+  model?: string | null;
+  execution_id?: string | null;
+  created_at?: string;
+  evidence?: string | null;
+  status: string;
+}
+
 export interface AISummaryContent {
   generated_at: string;
   patient_overview: string;
@@ -14,6 +45,7 @@ export interface AISummaryContent {
   missed_followups: string[];
   recommended_next_steps: string[];
   important_observations: string[];
+  provenance?: AIProvenance;
 }
 
 interface AISummaryCardProps {
@@ -29,8 +61,8 @@ export const AISummaryCard: React.FC<AISummaryCardProps> = ({ summary, onRefresh
 
       <SectionHeader
         icon={Sparkles}
-        title="AI Longitudinal Clinical Summary"
-        subtitle={`Generated ${summary.generated_at || "Just now"} by Agent 6 (InsightEngine) • Gemini 1.5 Pro`}
+        title="Patient Longitudinal Summary"
+        subtitle={buildProvenanceSubtitle(summary)}
         action={
           onRefresh && (
             <button
@@ -42,6 +74,27 @@ export const AISummaryCard: React.FC<AISummaryCardProps> = ({ summary, onRefresh
           )
         }
       />
+
+      {(() => {
+        const p = summary.provenance;
+        const isRealAI = !!p && !!p.model && p.generated_by !== "system";
+        return (
+          <div className={cn(
+            "mt-3 flex flex-wrap items-center gap-2 text-[11px]",
+            isRealAI ? "text-teal-400" : "text-slate-400"
+          )}>
+            <Badge variant={isRealAI ? "green" : "neutral"}>
+              {isRealAI ? "AI-Generated" : "System-Generated"}
+            </Badge>
+            <span className="font-mono">
+              {p ? `generated_by=${p.generated_by}` : "generated_by=system"}
+              {p?.model ? ` · model=${p.model}` : ""}
+              {p?.execution_id ? ` · exec=${p.execution_id.slice(0, 12)}` : ""}
+              {p ? ` · status=${p.status}` : " · status=deterministic"}
+            </span>
+          </div>
+        );
+      })()}
 
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
         <div className="panel p-3.5 bg-background-elevated/50 border border-border">

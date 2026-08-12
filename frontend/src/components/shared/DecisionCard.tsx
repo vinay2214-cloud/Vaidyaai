@@ -19,8 +19,8 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({
   decisionType,
   decisionMade,
   timeAgo,
-  modelUsed = "gemini-1.5-flash",
-  latencyMs = 850,
+  modelUsed = "—",
+  latencyMs = 0,
   className
 }) => {
   return (

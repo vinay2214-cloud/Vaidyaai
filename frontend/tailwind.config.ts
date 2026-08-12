@@ -21,7 +21,7 @@ const config: Config = {
         foreground: {
           DEFAULT: "#F8FAFC",
           muted: "#94A3B8",
-          subtle: "#64748B",
+          subtle: "#76849B",
           inverse: "#0B0F17",
         },
         border: {
@@ -144,6 +144,7 @@ const config: Config = {
         "3xl": ["1.875rem", { lineHeight: "2.25rem" }],
       },
       spacing: {
+        "4.5": "1.125rem",
         "18": "4.5rem",
         "22": "5.5rem",
         "30": "7.5rem",

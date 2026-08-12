@@ -11,8 +11,7 @@ import { PatientCard, PatientData } from "@/components/patients/PatientCard";
 import { SkeletonPatientCard } from "@/components/patients/SkeletonPatientCard";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { WalkInModal } from "@/components/WalkInModal";
-import { Users, PlusCircle } from "lucide-react";
+import { Users } from "lucide-react";
 
 export default function PatientIntelligencePage() {
   const clinicId = useClinicStore((state) => state.clinicId);
@@ -32,24 +31,24 @@ export default function PatientIntelligencePage() {
       setError(false);
       const res = await api.get(`/patients?clinic_id=${clinicId}`);
       
-      const enriched: PatientData[] = (res.data || []).map((p: any, idx: number) => ({
-        patient_id: p.patient_id || p.id || `pat_${idx}`,
-        name: p.name || `Patient ${idx + 1}`,
-        patient_phone_masked: p.patient_phone_masked || p.phone_masked || "+91XXXXXX3210",
-        age: p.age || 30 + (idx % 25),
-        gender: p.gender || (idx % 2 === 0 ? "M" : "F"),
-        city: p.city || "Mumbai",
-        last_visit_str: p.last_visit_str || (idx === 0 ? "Today" : "3 days ago"),
-        chief_complaint: p.chief_complaint || (idx % 2 === 0 ? "Fever & persistent cough for 4 days" : "Hypertension & routine BP checkup"),
-        visit_type: p.visit_type || "General Consultation",
-        status_badge: idx === 0 ? "TODAY" : idx === 1 ? "HIGH RISK" : idx % 3 === 0 ? "CHRONIC" : "FOLLOW-UP",
-        risk_level: idx === 1 ? "HIGH" : idx % 4 === 0 ? "MEDIUM" : "LOW",
-        consent_status: "granted",
-        allergies: idx % 3 === 0 ? ["Penicillin"] : [],
-        chronic_diseases: idx % 3 === 0 ? ["Type-2 Diabetes", "Hypertension"] : [],
-        has_ai_summary: true,
-        has_scribe_note: true,
-        has_retention_radar: idx % 3 === 0
+      const enriched: PatientData[] = (res.data || []).map((p: any) => ({
+        patient_id: p.patient_id || p.id,
+        name: p.name || p.patient_name || "Patient",
+        patient_phone_masked: p.phone_masked || p.patient_phone_masked || "+91XXXXXX3210",
+        age: p.age ?? undefined,
+        gender: p.gender ?? undefined,
+        city: p.address || p.city || undefined,
+        last_visit_str: p.last_visit_str || "Today",
+        chief_complaint: p.chief_complaint || p.complaint_summary || undefined,
+        visit_type: p.visit_type || p.consultation_type || "General Consultation",
+        status_badge: p.status_badge || (p.visit_count > 1 ? "FOLLOW-UP" : "TODAY"),
+        risk_level: p.risk_level || undefined,
+        consent_status: p.consent_given !== false ? "granted" : "pending",
+        allergies: Array.isArray(p.allergies) ? p.allergies : [],
+        chronic_diseases: Array.isArray(p.chronic_conditions) ? p.chronic_conditions : Array.isArray(p.chronic_diseases) ? p.chronic_diseases : [],
+        has_ai_summary: Boolean(p.has_ai_summary),
+        has_scribe_note: Boolean(p.has_scribe_note),
+        has_retention_radar: Boolean(p.has_retention_radar)
       }));
 
       setPatients(enriched);
@@ -112,23 +111,16 @@ export default function PatientIntelligencePage() {
   }), [patients]);
 
   return (
-    <div className="space-y-4">
-      <WalkInModal />
+    <div className="space-y-5">
 
-      {/* PRIORITY 5: Primary Patient Search & Quick Registration Top Bar */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-teal-400" />
-          <h2 className="text-base font-bold text-white">Patient Intelligence Center</h2>
-        </div>
-
-        <button
-          onClick={() => setWalkInModalOpen(true)}
-          className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
-        >
-          <PlusCircle className="w-4 h-4" /> Register Walk-In Patient
-        </button>
-      </div>
+      {/* Demographics & Metadata Header */}
+      <PatientHeader
+        totalPatients={patients.length}
+        highRiskCount={filterCounts.HIGH_RISK}
+        chronicCount={filterCounts.CHRONIC}
+        consentCount={patients.length}
+        onAddWalkIn={() => setWalkInModalOpen(true)}
+      />
 
       {/* Primary Patient Search Input */}
       <PatientSearch
@@ -143,15 +135,6 @@ export default function PatientIntelligencePage() {
         activeFilter={activeFilter}
         onFilterChange={setActiveFilter}
         counts={filterCounts}
-      />
-
-      {/* Demographics & Metadata Header */}
-      <PatientHeader
-        totalPatients={patients.length}
-        highRiskCount={filterCounts.HIGH_RISK}
-        chronicCount={filterCounts.CHRONIC}
-        consentCount={patients.length}
-        onAddWalkIn={() => setWalkInModalOpen(true)}
       />
 
       {/* Patient Cards List */}

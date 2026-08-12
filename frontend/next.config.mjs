@@ -22,7 +22,6 @@ if (missingVars.length > 0 && process.env.NODE_ENV !== "production") {
 }
 
 const nextConfig = {
-  output: "standalone",
   reactStrictMode: true
 };
 

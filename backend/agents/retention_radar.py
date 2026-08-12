@@ -61,10 +61,11 @@ class RetentionRadarAgent(BaseAgent):
             # C-7: enforce the "all LLM payloads anonymised" invariant.
             prompt = anonymise_for_llm(prompt)
 
+            from config import settings
             outreach_data, latency_ms = await self._timed_gemini_json_call(
                 task="retention_outreach_generation",
                 prompt=prompt,
-                model="gemini-1.5-flash"
+                model=settings.GEMINI_FAST_MODEL
             )
 
             message_text = outreach_data.get(
@@ -114,7 +115,7 @@ class RetentionRadarAgent(BaseAgent):
                 decision_made=f"Sent re-engagement outreach for {primary_diag} (Priority: {outreach_data.get('priority_score')})",
                 clinic_id=clinic_id,
                 consultation_id=cons["consultation_id"],
-                model_used="gemini-1.5-flash",
+                model_used=settings.GEMINI_FAST_MODEL,
                 latency_ms=latency_ms
             )
 

@@ -47,18 +47,19 @@ export const PatientFilterBar: React.FC<PatientFilterBarProps> = ({
           <button
             key={f.id}
             onClick={() => onFilterChange(f.id)}
+            aria-pressed={isSelected}
             className={clsx(
-              "px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors border flex items-center gap-1.5",
+              "px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors border flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50",
               isSelected
                 ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
-                : "bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200"
+                : "bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200 hover:border-slate-600"
             )}
           >
             <span>{f.label}</span>
             {count !== undefined && (
               <span
                 className={clsx(
-                  "px-1.5 py-0.2 text-[10px] font-bold rounded-full font-mono",
+                  "px-1.5 py-0.5 text-[10px] font-bold rounded-full font-mono leading-none",
                   isSelected ? "bg-teal-400 text-slate-950" : "bg-slate-700 text-slate-300"
                 )}
               >

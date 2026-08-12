@@ -14,7 +14,7 @@ export const IntegrationCard: React.FC = () => {
   const integrations: IntegrationHealth[] = [
     { name: "WhatsApp Cloud API", provider: "Meta Business", status: "connected", lastSync: "1 min ago", healthPct: 100 },
     { name: "Razorpay Payment Gateway", provider: "Razorpay India", status: "connected", lastSync: "2 mins ago", healthPct: 100 },
-    { name: "Google Vertex AI Gemini 1.5", provider: "Google Cloud Platform", status: "connected", lastSync: "Just now", healthPct: 99 },
+    { name: "Google Vertex AI (Gemini 2.5)", provider: "Google Cloud Platform", status: "connected", lastSync: "Just now", healthPct: 100 },
     { name: "Firestore Realtime DB", provider: "Google Firebase", status: "connected", lastSync: "Just now", healthPct: 100 },
     { name: "Cloud SQL PostgreSQL 15", provider: "GCP Cloud SQL", status: "connected", lastSync: "5 mins ago", healthPct: 100 },
     { name: "GCP Cloud Tasks Queues", provider: "Google Cloud", status: "connected", lastSync: "Just now", healthPct: 100 }

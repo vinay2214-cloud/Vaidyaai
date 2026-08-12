@@ -1,4 +1,4 @@
-export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
+export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 export const AGENT_COLOR_MAP: Record<string, { bg: string; text: string; border: string }> = {
   appointment_flow: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" },

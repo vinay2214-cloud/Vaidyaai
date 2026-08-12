@@ -43,6 +43,7 @@ class ApproveConsultationRequest(BaseModel):
     edited_soap: Optional[Dict[str, Any]] = None
     edited_medications: Optional[List[Dict[str, Any]]] = None
     consultation_type: Optional[str] = "new"
+    transcript_reviewed: Optional[bool] = False
 
 
 class SafetyCheckRequest(BaseModel):
@@ -54,6 +55,18 @@ class SafetyCheckRequest(BaseModel):
 class OverrideSafetyRequest(BaseModel):
     clinic_id: str
     override_reason: str
+
+
+class UpdateVitalsRequest(BaseModel):
+    clinic_id: str
+    vitals: Dict[str, Any]
+
+
+class UpdateClinicalHistoryRequest(BaseModel):
+    clinic_id: str
+    allergies: Optional[List[str]] = None
+    chronic_conditions: Optional[List[str]] = None
+    current_medications: Optional[List[Any]] = None
 
 
 class CreateReferralRequest(BaseModel):
@@ -95,12 +108,19 @@ async def start_consultation_endpoint(
             "consultation_id": cons["consultation_id"],
             "patient_id": cons.get("patient_id", patient_id),
             "appointment_id": req.appointment_id,
-            "status": cons.get("status", "draft")
+            "status": cons.get("status", "draft"),
+            "vitals": cons.get("vitals", {})
         }
 
     from datetime import datetime, timezone
     now_utc = datetime.now(timezone.utc)
     new_cons_id = f"cons_{int(now_utc.timestamp())}"
+
+    # Preload existing longitudinal patient background if available
+    patient_doc = await get_document("patients", patient_id) if patient_id else None
+    preloaded_allergies = list(patient_doc.get("allergies", [])) if patient_doc else []
+    preloaded_chronic = list(patient_doc.get("chronic_conditions", [])) if patient_doc else []
+    preloaded_meds = list(patient_doc.get("current_medications", [])) if patient_doc else []
 
     cons_doc = {
         "consultation_id": new_cons_id,
@@ -108,6 +128,10 @@ async def start_consultation_endpoint(
         "appointment_id": req.appointment_id,
         "patient_id": patient_id,
         "status": "draft",
+        "vitals": {},
+        "patient_allergies": preloaded_allergies,
+        "patient_chronic_diseases": preloaded_chronic,
+        "patient_current_medications": preloaded_meds,
         "transcript_raw": "",
         "transcript_anonymised": "",
         "soap_note": {"subjective": "", "objective": "", "assessment": "", "plan": ""},
@@ -115,7 +139,7 @@ async def start_consultation_endpoint(
         "medications": [],
         "investigations": [],
         "referrals": [],
-        "followup_days": 5,
+        "followup_days": 3,
         "created_at": now_utc,
         "updated_at": now_utc
     }
@@ -137,7 +161,82 @@ async def start_consultation_endpoint(
         "consultation_id": new_cons_id,
         "patient_id": patient_id,
         "appointment_id": req.appointment_id,
-        "status": "draft"
+        "status": "draft",
+        "vitals": {}
+    }
+
+
+@router.post("/consultations/{id}/vitals", tags=["consultations"])
+async def update_consultation_vitals(
+    id: str,
+    req: UpdateVitalsRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    POST /api/v1/consultations/{id}/vitals
+    Saves or updates clinician-verified structured vitals for a consultation session.
+    """
+    verify_clinic_access(req.clinic_id, current_user)
+    consultation = await get_document("consultations", id)
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation record not found")
+
+    from datetime import datetime, timezone
+    await update_document("consultations", id, {
+        "vitals": req.vitals,
+        "updated_at": datetime.now(timezone.utc)
+    })
+
+    logger.info(f"Updated vitals for consultation '{id}': {req.vitals}")
+    return {
+        "consultation_id": id,
+        "vitals": req.vitals,
+        "status": "updated"
+    }
+
+
+@router.post("/consultations/{id}/clinical-history", tags=["consultations"])
+async def update_consultation_clinical_history(
+    id: str,
+    req: UpdateClinicalHistoryRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    verify_clinic_access(req.clinic_id, current_user)
+    consultation = await get_document("consultations", id)
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation record not found")
+
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    update_data: Dict[str, Any] = {"updated_at": now_utc}
+    if req.allergies is not None:
+        update_data["patient_allergies"] = req.allergies
+    if req.chronic_conditions is not None:
+        update_data["patient_chronic_diseases"] = req.chronic_conditions
+    if req.current_medications is not None:
+        update_data["patient_current_medications"] = req.current_medications
+
+    await update_document("consultations", id, update_data)
+
+    patient_id = consultation.get("patient_id")
+    if patient_id:
+        pat_update: Dict[str, Any] = {"updated_at": now_utc}
+        if req.allergies is not None:
+            pat_update["allergies"] = req.allergies
+        if req.chronic_conditions is not None:
+            pat_update["chronic_conditions"] = req.chronic_conditions
+        if req.current_medications is not None:
+            pat_update["current_medications"] = req.current_medications
+        await update_document("patients", patient_id, pat_update)
+
+    logger.info(f"Updated clinical history for consultation '{id}' (Patient '{patient_id}')")
+    return {
+        "consultation_id": id,
+        "patient_id": patient_id,
+        "patient_allergies": req.allergies,
+        "patient_chronic_diseases": req.chronic_conditions,
+        "patient_current_medications": req.current_medications,
+        "status": "updated"
     }
 
 
@@ -177,11 +276,25 @@ async def transcribe_consultation(
 ):
     verify_clinic_access(req.clinic_id, current_user)
 
+    chunk_paths = list(req.chunk_paths) if req.chunk_paths else []
+
+    # Check for server-side audio chunks directory if chunk_paths is empty or incomplete
+    temp_dir = os.path.join(tempfile.gettempdir(), "vaidyaai_audio", req.consultation_id)
+    if os.path.isdir(temp_dir):
+        disk_chunks = sorted([
+            os.path.join(temp_dir, f)
+            for f in os.listdir(temp_dir)
+            if f.startswith("chunk_") and (f.endswith(".webm") or f.endswith(".wav") or f.endswith(".mp4") or f.endswith(".ogg"))
+        ])
+        if disk_chunks and (len(disk_chunks) > len(chunk_paths) or not chunk_paths):
+            logger.info(f"Discovered {len(disk_chunks)} audio chunks on disk for consultation {req.consultation_id}")
+            chunk_paths = disk_chunks
+
     result = await scribe_agent.process_consultation_audio(
         consultation_id=req.consultation_id,
         clinic_id=req.clinic_id,
         appointment_id=req.appointment_id,
-        chunk_paths=req.chunk_paths,
+        chunk_paths=chunk_paths,
         patient_history=req.patient_history or "",
         vitals=req.vitals or "",
         language_code=req.language_code or "te-IN"
@@ -218,6 +331,31 @@ async def get_consultation(
         raise HTTPException(status_code=404, detail="Consultation record not found")
     if consultation.get("clinic_id") != clinic_id:
         raise HTTPException(status_code=403, detail="Access denied")
+
+    if consultation.get("appointment_id"):
+        app = await get_document("appointments", consultation["appointment_id"])
+        if app:
+            consultation["patient_name"] = app.get("patient_name", "Patient")
+            consultation["patient_phone_masked"] = app.get("patient_phone_masked", app.get("patient_phone", "XXXX"))
+            consultation["complaint_summary"] = app.get("complaint_summary", "Consultation")
+            consultation["consultation_type"] = app.get("consultation_type", "new")
+
+    # Ensure vitals only come from the consultation encounter
+    consultation["vitals"] = consultation.get("vitals") or {}
+
+    if consultation.get("patient_id"):
+        pat = await get_document("patients", consultation["patient_id"])
+        if pat:
+            consultation["patient_age"] = pat.get("age") if pat.get("age") is not None else "Not Recorded"
+            consultation["patient_gender"] = pat.get("gender") if pat.get("gender") else "Not Recorded"
+            consultation["patient_blood_group"] = pat.get("blood_group") or pat.get("blood_type") or "Not Recorded"
+            if not consultation.get("patient_allergies"):
+                consultation["patient_allergies"] = pat.get("allergies") if pat.get("allergies") is not None else []
+            if not consultation.get("patient_chronic_diseases"):
+                consultation["patient_chronic_diseases"] = pat.get("chronic_conditions") if pat.get("chronic_conditions") is not None else pat.get("medical_history", [])
+            if not consultation.get("patient_current_medications"):
+                consultation["patient_current_medications"] = pat.get("current_medications", [])
+
     return consultation
 
 
@@ -309,8 +447,15 @@ async def approve_consultation(
         clinic_id=req.clinic_id,
         edited_soap=req.edited_soap,
         edited_medications=req.edited_medications,
-        consultation_type=req.consultation_type or "new"
+        consultation_type=req.consultation_type or "new",
+        transcript_reviewed=req.transcript_reviewed or False
     )
+
+    if isinstance(result, dict) and result.get("error"):
+        from fastapi.encoders import jsonable_encoder
+        error_type = result.get("error")
+        status_code = 404 if error_type in ("not_found", "Consultation not found") else 400
+        raise HTTPException(status_code=status_code, detail=jsonable_encoder(result))
 
     # Emit PRESCRIPTION_APPROVED event AFTER database commit
     bus = get_event_bus()
@@ -369,3 +514,119 @@ async def download_prescription_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+@router.get("/consultations/{id}/activity", tags=["consultations"])
+async def get_consultation_activity(
+    id: str,
+    clinic_id: str = Query(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    GET /api/v1/consultations/{id}/activity?clinic_id={id}
+    Returns the REAL agent activity log scoped to this consultation.
+    Used by the consultation workspace activity feed so that every item shown
+    is backed by an actual agent_logs record (no fabricated/hardcoded entries).
+    """
+    verify_clinic_access(clinic_id, current_user)
+
+    consultation = await get_document("consultations", id)
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+
+    from datetime import datetime, timezone
+
+    def _format_dt(val):
+        if not val:
+            return None
+        if isinstance(val, datetime):
+            dt = val if val.tzinfo else val.replace(tzinfo=timezone.utc)
+            return dt.isoformat()
+        if isinstance(val, str):
+            try:
+                dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
+            except Exception:
+                return None
+        if hasattr(val, "toDate"):
+            try:
+                dt = val.toDate()
+                return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
+            except Exception:
+                return None
+        return None
+
+    # Query agent_logs scoped to this clinic and consultation.
+    logs = await query_documents(
+        "agent_logs",
+        [("clinic_id", "==", clinic_id)],
+        limit=200,
+    )
+
+    activity = []
+    for l in logs:
+        # Match by consultation_id when present; otherwise skip (do not fabricate).
+        if l.get("consultation_id") and l["consultation_id"] != id:
+            continue
+        if not l.get("consultation_id"):
+            continue
+        activity.append({
+            "id": l.get("log_id") or l.get("id"),
+            "agent": l.get("agent_name", "system"),
+            "decision_type": l.get("decision_type"),
+            "message": l.get("decision_made", ""),
+            "status": "completed" if l.get("success") is not False else "failed",
+            "model_used": l.get("model_used"),
+            "latency_ms": l.get("latency_ms"),
+            "created_at": _format_dt(l.get("created_at")),
+        })
+
+    # Sort chronologically (oldest first) for a natural feed
+    def _sort_key(a):
+        ts = a.get("created_at") or ""
+        return ts
+
+    activity.sort(key=_sort_key)
+
+    return {
+        "consultation_id": id,
+        "clinic_id": clinic_id,
+        "items": activity,
+        "count": len(activity),
+    }
+
+
+# ─── Patient Summary Endpoint ────────────────────────────────────────────────
+
+@router.get("/consultations/patient-summary/{patient_id}", tags=["consultations"])
+async def get_patient_summary(
+    patient_id: str,
+    clinic_id: str = Query(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Generate a grounded longitudinal patient summary from reviewed consultations."""
+    verify_clinic_access(clinic_id, current_user)
+    from utils.patient_summary import generate_patient_summary
+    summary = await generate_patient_summary(patient_id=patient_id, clinic_id=clinic_id)
+    if summary.get("error"):
+        raise HTTPException(status_code=404, detail=summary["error"])
+    return summary
+
+
+@router.get("/consultations/{id}/fhir", tags=["consultations"])
+async def export_consultation_fhir(
+    id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Export a consultation as a FHIR R4 Bundle."""
+    consultation = await get_document("consultations", id)
+    if not consultation:
+        raise HTTPException(status_code=404, detail="Consultation not found")
+    verify_clinic_access(consultation.get("clinic_id", ""), current_user)
+
+    patient = await get_document("patients", consultation.get("patient_id", ""))
+    clinic = await get_document("clinics", consultation.get("clinic_id", ""))
+
+    from integrations.fhir_r4 import export_consultation_to_fhir
+    return await export_consultation_to_fhir(
+        consultation=consultation, patient=patient or {}, clinic=clinic or {})

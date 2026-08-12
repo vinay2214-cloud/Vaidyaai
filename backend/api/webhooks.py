@@ -180,16 +180,20 @@ async def receive_razorpay_webhook(
                     payment_method="upi"
                 )
 
-                # Emit PAYMENT_COMPLETED event AFTER database commit
-                from event_bus import ClinicalEvent, create_event, get_event_bus
-                bus = get_event_bus()
-                await bus.emit(create_event(
-                    ClinicalEvent.PAYMENT_COMPLETED,
-                    clinic_id=result.get("clinic_id", "cln_e2e_test_clinic"),
-                    consultation_id=result.get("consultation_id"),
-                    trigger="webhook:razorpay",
-                    payload={"payment_method": "upi", "amount_paise": amount_paise}
-                ))
+                result_clinic_id = result.get("clinic_id")
+                if not result_clinic_id:
+                    logger.error(f"Razorpay webhook: billing result missing clinic_id, skipping event emission")
+                else:
+                    # Emit PAYMENT_COMPLETED event AFTER database commit
+                    from event_bus import ClinicalEvent, create_event, get_event_bus
+                    bus = get_event_bus()
+                    await bus.emit(create_event(
+                        ClinicalEvent.PAYMENT_COMPLETED,
+                        clinic_id=result_clinic_id,
+                        consultation_id=result.get("consultation_id"),
+                        trigger="webhook:razorpay",
+                        payload={"payment_method": "upi", "amount_paise": amount_paise}
+                    ))
 
         return {"status": "processed", "event": event}
     except Exception as e:

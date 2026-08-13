@@ -23,6 +23,8 @@ import { QuickActionsBar } from "@/components/patient-detail/QuickActionsBar";
 import { PatientSidebar } from "@/components/patient-detail/PatientSidebar";
 import { useToast } from "@/components/design-system";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { FHIRExportModal } from "@/components/shared/FHIRExportModal";
+import { PatientSummaryModal } from "@/components/shared/PatientSummaryModal";
 
 export default function LongitudinalPatientRecordPage() {
   const params = useParams();
@@ -33,6 +35,8 @@ export default function LongitudinalPatientRecordPage() {
   const [loading, setLoading] = useState(true);
   const [patientData, setPatientData] = useState<any>(null);
   const [timelineData, setTimelineData] = useState<any[]>([]);
+  const [showFHIRModal, setShowFHIRModal] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -246,7 +250,8 @@ export default function LongitudinalPatientRecordPage() {
       {/* SECTION 13: Sticky Quick Actions Bar */}
       <QuickActionsBar
         patientId={patientId}
-        onGenerateSummary={() => toast("Patient summary refreshed (deterministic compile from records).", "info")}
+        onGenerateSummary={() => setShowSummaryModal(true)}
+        onExportFHIR={() => setShowFHIRModal(true)}
         onSendFollowup={() => toast("Follow-up outreach triggered via Agent 4 (RetentionRadar)", "info")}
       />
 
@@ -296,6 +301,22 @@ export default function LongitudinalPatientRecordPage() {
           <PatientSidebar />
         </div>
       </div>
+
+      {/* FHIR R4 Export Modal */}
+      <FHIRExportModal
+        isOpen={showFHIRModal}
+        onClose={() => setShowFHIRModal(false)}
+        patientId={patientId}
+        patientName={patientHeader.name}
+      />
+
+      {/* Longitudinal Patient Summary Modal */}
+      <PatientSummaryModal
+        isOpen={showSummaryModal}
+        onClose={() => setShowSummaryModal(false)}
+        patientId={patientId}
+        patientName={patientHeader.name}
+      />
     </div>
   );
 }

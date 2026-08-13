@@ -322,7 +322,8 @@ class ClinicalScribeAgent(BaseAgent):
         edited_soap: Optional[Dict[str, Any]] = None,
         edited_medications: Optional[List[Dict[str, Any]]] = None,
         consultation_type: str = "new",
-        transcript_reviewed: bool = False
+        transcript_reviewed: bool = False,
+        doctor_uid: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Invoked when doctor approves the draft SOAP note in the Dashboard.
@@ -447,7 +448,7 @@ class ClinicalScribeAgent(BaseAgent):
                 clinic_id=clinic_id,
                 consultation_id=consultation_id,
                 patient_id=patient_id,
-                doctor_id=current_user.get("uid") if current_user else None,
+                doctor_id=doctor_uid,
                 trigger="clinician:approve",
                 payload={"consultation_type": consultation_type, "medication_count": len(effective_meds)},
             ))

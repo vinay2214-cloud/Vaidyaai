@@ -1,3 +1,4 @@
+import uuid
 import logging
 import asyncio
 from datetime import datetime, timezone
@@ -237,7 +238,7 @@ async def register_patient_endpoint(
     existing_appts = await query_documents("appointments", [("clinic_id", "==", req.clinic_id), ("slot_date", "==", today_date)])
     queue_number = len(existing_appts) + 1
 
-    app_id = f"app_reg_{int(now_utc.timestamp())}"
+    app_id = f"app_reg_{int(now_utc.timestamp())}_{uuid.uuid4().hex[:6]}"
     appointment_data = {
         "appointment_id": app_id,
         "clinic_id": req.clinic_id,

@@ -10,13 +10,13 @@ import { Cpu, Download, Activity, CheckCircle2, XCircle, Clock, ChevronDown, Che
 import api from "@/lib/api";
 
 const AGENTS = [
-  { id: "appointment_flow", label: "AppointmentFlow", color: "teal" as const, decisions: "slot_offers" },
-  { id: "clinical_scribe", label: "ClinicalScribe", color: "blue" as const, decisions: "soap_drafts" },
-  { id: "billing_pulse", label: "BillingPulse", color: "orange" as const, decisions: "invoice_runs" },
-  { id: "retention_radar", label: "RetentionRadar", color: "green" as const, decisions: "followups" },
-  { id: "prescription_safe", label: "PrescriptionSafe", color: "red" as const, decisions: "safety_checks" },
-  { id: "insight_engine", label: "InsightEngine", color: "blue" as const, decisions: "practice_alerts" },
-  { id: "referral_coordinator", label: "ReferralCoordinator", color: "green" as const, decisions: "referral_links" },
+  { id: "appointment_flow", label: "Appointment Assistant", color: "teal" as const, decisions: "slot_offers" },
+  { id: "clinical_scribe", label: "Clinical Scribe", color: "blue" as const, decisions: "soap_drafts" },
+  { id: "prescription_safe", label: "Medication Safety", color: "red" as const, decisions: "safety_checks" },
+  { id: "billing_pulse", label: "Billing Assistant", color: "orange" as const, decisions: "invoice_runs" },
+  { id: "retention_radar", label: "Follow-up Assistant", color: "green" as const, decisions: "followups" },
+  { id: "referral_coordinator", label: "Referral Assistant", color: "green" as const, decisions: "referral_links" },
+  { id: "insight_engine", label: "Clinical Insights", color: "blue" as const, decisions: "practice_alerts" },
 ];
 
 const AGENT_COLOR_MAP: Record<string, ActivityItem["agentColor"]> = {

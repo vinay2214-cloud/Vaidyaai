@@ -25,6 +25,7 @@ class ReviewStatus(str, Enum):
 
 
 class Provenance(BaseModel):
+    model_config = {"protected_namespaces": ()}
     source: SourceType
     agent_name: Optional[str] = None
     model_used: Optional[str] = None

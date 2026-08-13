@@ -52,6 +52,17 @@ async def init_db():
         import models.consultation
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            if settings.DATABASE_URL.strip().lower().startswith("sqlite"):
+                def _migrate_sqlite_schema(connection):
+                    try:
+                        res = connection.exec_driver_sql("PRAGMA table_info(invoices)")
+                        cols = [row[1] for row in res.fetchall()]
+                        if cols and "patient_id" not in cols:
+                            connection.exec_driver_sql("ALTER TABLE invoices ADD COLUMN patient_id VARCHAR(128)")
+                            logger.info("Auto-migrated SQLite: added patient_id to invoices table")
+                    except Exception as exc:
+                        logger.warning(f"SQLite auto-migration check notice: {exc}")
+                await conn.run_sync(_migrate_sqlite_schema)
         logger.info("Database tables checked/created (development)")
     else:
         logger.info("Non-development environment: schema managed by Alembic migrations; skipping create_all.")

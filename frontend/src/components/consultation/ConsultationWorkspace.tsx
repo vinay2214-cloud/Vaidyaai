@@ -33,6 +33,8 @@ import {
   Check,
 } from "lucide-react";
 import Link from "next/link";
+import { FHIRExportModal } from "@/components/shared/FHIRExportModal";
+import { PatientSummaryModal } from "@/components/shared/PatientSummaryModal";
 
 const tabs = [
   { id: "soap", label: "SOAP", icon: FileText },
@@ -117,6 +119,8 @@ export function ConsultationWorkspace({
   const [showAllergyModal, setShowAllergyModal] = useState(false);
   const [showChronicModal, setShowChronicModal] = useState(false);
   const [showMedModal, setShowMedModal] = useState(false);
+  const [showFHIRModal, setShowFHIRModal] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
 
   const [allergiesList, setAllergiesList] = useState<string[]>(() => {
     return Array.isArray((consultation as any).patient_allergies) ? (consultation as any).patient_allergies : [];
@@ -386,7 +390,23 @@ export function ConsultationWorkspace({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowSummaryModal(true)}
+            className="px-2.5 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" /> Patient Summary
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowFHIRModal(true)}
+            className="px-2.5 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 text-teal-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors"
+          >
+            <FileCode className="w-3.5 h-3.5 text-teal-400" /> Export FHIR R4
+          </button>
+
           <AIStatus
             state={consultation.status === "approved" ? "completed" : "running"}
             label={consultation.status === "approved" ? "Consultation Approved" : "AI Scribing Active"}
@@ -1526,6 +1546,23 @@ export function ConsultationWorkspace({
           </div>
         </div>
       )}
+
+      {/* FHIR R4 Encounter Export Modal */}
+      <FHIRExportModal
+        isOpen={showFHIRModal}
+        onClose={() => setShowFHIRModal(false)}
+        consultationId={consultationId}
+        patientId={consultation.patient_id}
+        patientName={(consultation as any).patient_name || "Patient"}
+      />
+
+      {/* Longitudinal Patient Summary Modal */}
+      <PatientSummaryModal
+        isOpen={showSummaryModal}
+        onClose={() => setShowSummaryModal(false)}
+        patientId={consultation.patient_id || ""}
+        patientName={(consultation as any).patient_name || "Patient"}
+      />
     </div>
   );
 }

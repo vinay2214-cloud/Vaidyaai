@@ -29,13 +29,13 @@ export function AgentStatusBar({
     : "No agent activity recorded yet";
 
   const agents = [
-    { id: "appointment_flow", label: "Agent 1: AppointmentFlow" },
-    { id: "clinical_scribe", label: "Agent 2: ClinicalScribe" },
-    { id: "billing_pulse", label: "Agent 3: BillingPulse" },
-    { id: "retention_radar", label: "Agent 4: RetentionRadar" },
-    { id: "prescription_safe", label: "Agent 5: PrescriptionSafe" },
-    { id: "insight_engine", label: "Agent 6: InsightEngine" },
-    { id: "referral_coordinator", label: "Agent 7: ReferralCoordinator" }
+    { id: "appointment_flow", label: "Appointment Assistant" },
+    { id: "clinical_scribe", label: "Clinical Scribe" },
+    { id: "prescription_safe", label: "Medication Safety" },
+    { id: "billing_pulse", label: "Billing Assistant" },
+    { id: "retention_radar", label: "Follow-up Assistant" },
+    { id: "referral_coordinator", label: "Referral Assistant" },
+    { id: "insight_engine", label: "Clinical Insights" }
   ];
 
   if (showFiltersOnly && onSelectFilter) {

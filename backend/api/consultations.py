@@ -448,7 +448,8 @@ async def approve_consultation(
         edited_soap=req.edited_soap,
         edited_medications=req.edited_medications,
         consultation_type=req.consultation_type or "new",
-        transcript_reviewed=req.transcript_reviewed or False
+        transcript_reviewed=req.transcript_reviewed or False,
+        doctor_uid=current_user.get("uid")
     )
 
     if isinstance(result, dict) and result.get("error"):

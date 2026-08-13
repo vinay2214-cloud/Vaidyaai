@@ -1,6 +1,8 @@
+"use client";
+
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Stethoscope, FileText, Share2, CreditCard, Send, Sparkles, Printer, Loader2 } from "lucide-react";
+import { Stethoscope, FileText, Share2, CreditCard, Send, Sparkles, FileCode, Loader2 } from "lucide-react";
 import clsx from "clsx";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
@@ -8,6 +10,7 @@ import { useClinicStore } from "@/store/clinicStore";
 interface QuickActionsBarProps {
   patientId: string;
   onGenerateSummary?: () => void;
+  onExportFHIR?: () => void;
   onSendFollowup?: () => void;
   className?: string;
 }
@@ -15,6 +18,7 @@ interface QuickActionsBarProps {
 export const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   patientId,
   onGenerateSummary,
+  onExportFHIR,
   onSendFollowup,
   className
 }) => {
@@ -82,32 +86,29 @@ export const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           )}
         </button>
 
-        <button
-          onClick={handleStartConsult}
-          className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/70 text-purple-300 text-xs font-semibold rounded-xl flex items-center gap-1 whitespace-nowrap transition-colors shrink-0"
-        >
-          <FileText className="w-3.5 h-3.5 text-purple-400" /> Generate SOAP
-        </button>
+        {onGenerateSummary && (
+          <button
+            onClick={onGenerateSummary}
+            className="px-2.5 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-bold rounded-xl flex items-center gap-1 whitespace-nowrap transition-colors shrink-0"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" /> Patient Summary
+          </button>
+        )}
+
+        {onExportFHIR && (
+          <button
+            onClick={onExportFHIR}
+            className="px-2.5 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 text-teal-300 text-xs font-bold rounded-xl flex items-center gap-1 whitespace-nowrap transition-colors shrink-0"
+          >
+            <FileCode className="w-3.5 h-3.5 text-teal-400" /> Export FHIR R4
+          </button>
+        )}
 
         <button
-          onClick={() => alert(`Printing Prescription Rx PDF for Patient ID: ${patientId}`)}
-          className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/70 text-emerald-300 text-xs font-semibold rounded-xl flex items-center gap-1 whitespace-nowrap transition-colors shrink-0"
-        >
-          <Printer className="w-3.5 h-3.5 text-emerald-400" /> Print Rx
-        </button>
-
-        <button
-          onClick={() => alert(`Opening Referral Letter Generator for Patient ID: ${patientId}`)}
-          className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/70 text-purple-300 text-xs font-semibold rounded-xl flex items-center gap-1 whitespace-nowrap transition-colors shrink-0"
-        >
-          <Share2 className="w-3.5 h-3.5 text-purple-400" /> Create Referral
-        </button>
-
-        <button
-          onClick={() => alert(`Generating Invoice PDF & UPI Payment Link for Patient ID: ${patientId}`)}
+          onClick={() => router.push("/billing")}
           className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/70 text-amber-300 text-xs font-semibold rounded-xl flex items-center gap-1 whitespace-nowrap transition-colors shrink-0"
         >
-          <CreditCard className="w-3.5 h-3.5 text-amber-400" /> Create Invoice
+          <CreditCard className="w-3.5 h-3.5 text-amber-400" /> Billing & Invoices
         </button>
 
         {onSendFollowup && (
@@ -116,15 +117,6 @@ export const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/70 text-blue-300 text-xs font-semibold rounded-xl flex items-center gap-1 whitespace-nowrap transition-colors shrink-0"
           >
             <Send className="w-3.5 h-3.5 text-blue-400" /> Send Follow-up
-          </button>
-        )}
-
-        {onGenerateSummary && (
-          <button
-            onClick={onGenerateSummary}
-            className="px-2.5 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 text-teal-300 text-xs font-bold rounded-xl flex items-center gap-1 whitespace-nowrap transition-colors shrink-0"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-teal-400" /> AI Summary
           </button>
         )}
       </div>

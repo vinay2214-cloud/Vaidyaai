@@ -25,6 +25,27 @@ def test_generate_raises_when_unavailable_in_production(monkeypatch):
         _run(svc.generate("any prompt"))
 
 
+def test_generate_does_not_import_vertex_when_disabled(monkeypatch):
+    """Regression: when GOOGLE_GENAI_USE_VERTEXAI=False the service must fail
+    closed WITHOUT attempting to import/initialize the heavyweight Vertex SDK."""
+    from config import settings
+    import services.gemini as gemini_mod
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "GOOGLE_GENAI_USE_VERTEXAI", False)
+    monkeypatch.setattr(settings, "AI_ALLOW_MOCK_FALLBACK", True)
+    svc = GeminiService()
+
+    # Reset the module-level import flag so this test measures this call only.
+    monkeypatch.setattr(gemini_mod, "_vertex_import_attempted", False)
+
+    with pytest.raises(RuntimeError):
+        _run(svc.generate("any prompt"))
+
+    # The heavyweight Vertex SDK must never have been imported on this path.
+    assert gemini_mod._vertex_import_attempted is False
+
+
 def test_generate_uses_mock_in_development(monkeypatch):
     from config import settings
 

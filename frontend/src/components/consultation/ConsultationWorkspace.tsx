@@ -63,7 +63,7 @@ function computeEstimate(
   consultation: ConsultationData,
   clinicFees?: { new_patient_paise?: number; followup_paise?: number; procedure_paise?: number } | null
 ) {
-  const type = (consultation as any).consultation_type || "new";
+  const type = consultation.consultation_type || "new";
   let basePaise: number;
   if (type === "followup") {
     basePaise = clinicFees?.followup_paise ?? 15000;
@@ -123,13 +123,15 @@ export function ConsultationWorkspace({
   const [showSummaryModal, setShowSummaryModal] = useState(false);
 
   const [allergiesList, setAllergiesList] = useState<string[]>(() => {
-    return Array.isArray((consultation as any).patient_allergies) ? (consultation as any).patient_allergies : [];
+    return Array.isArray(consultation.patient_allergies) ? consultation.patient_allergies : [];
   });
   const [chronicList, setChronicList] = useState<string[]>(() => {
-    return Array.isArray((consultation as any).patient_chronic_diseases) ? (consultation as any).patient_chronic_diseases : [];
+    return Array.isArray(consultation.patient_chronic_diseases) ? consultation.patient_chronic_diseases : [];
   });
   const [medicationList, setMedicationList] = useState<Array<{ drug_name: string; dosage: string; frequency: string; route?: string; duration?: string; status?: string }>>(() => {
-    return Array.isArray((consultation as any).patient_current_medications) ? (consultation as any).patient_current_medications : [];
+    const meds = consultation.patient_current_medications;
+    if (!Array.isArray(meds)) return [];
+    return meds.map((m) => (typeof m === "string" ? { drug_name: m, dosage: "", frequency: "" } : Object.assign({ dosage: "", frequency: "" }, m) as { drug_name: string; dosage: string; frequency: string }));
   });
 
   // Detailed Allergy Entry Form State
@@ -212,14 +214,14 @@ export function ConsultationWorkspace({
 
   // Synchronize state when consultation object changes (e.g. from Speech-to-Text extraction)
   useEffect(() => {
-    if (Array.isArray((consultation as any).patient_allergies) && (consultation as any).patient_allergies.length > 0) {
-      setAllergiesList((consultation as any).patient_allergies);
+    if (Array.isArray(consultation.patient_allergies) && consultation.patient_allergies.length > 0) {
+      setAllergiesList(consultation.patient_allergies);
     }
-    if (Array.isArray((consultation as any).patient_chronic_diseases) && (consultation as any).patient_chronic_diseases.length > 0) {
-      setChronicList((consultation as any).patient_chronic_diseases);
+    if (Array.isArray(consultation.patient_chronic_diseases) && consultation.patient_chronic_diseases.length > 0) {
+      setChronicList(consultation.patient_chronic_diseases);
     }
-    if ((consultation as any).vitals) {
-      const v = (consultation as any).vitals;
+    if (consultation.vitals) {
+      const v = consultation.vitals;
       setVitals({
         bp: v.bp || "",
         pulse: v.pulse || "",
@@ -233,7 +235,7 @@ export function ConsultationWorkspace({
 
   // Structured Vitals State
   const [vitals, setVitals] = useState(() => {
-    const v = (consultation as any).vitals || {};
+    const v = consultation.vitals || {};
     return {
       bp: v.bp || "",
       pulse: v.pulse || "",
@@ -343,14 +345,14 @@ export function ConsultationWorkspace({
   };
 
   const estimate = computeEstimate(consultation, clinicFees);
-  const isReturningPatient = Boolean((consultation as any).visit_count > 1 || (consultation as any).total_visits > 1);
-  const hasSafetyEvaluation = (consultation as any).safety_evaluation;
+  const isReturningPatient = Boolean((consultation.visit_count ?? 0) > 1 || (consultation.total_visits ?? 0) > 1);
+  const hasSafetyEvaluation = consultation.safety_evaluation;
 
   // Dynamic Consultation Readiness Checklist
   const isAllergyReviewed = allergiesList.length > 0;
   const isChronicReviewed = chronicList.length > 0;
   const isMedicationReviewed = medicationList.length > 0;
-  const isChiefComplaintReviewed = Boolean((consultation as any).complaint_summary || (consultation as any).chief_complaint);
+  const isChiefComplaintReviewed = Boolean(consultation.complaint_summary || consultation.chief_complaint);
   const isAssessmentDocumented = Boolean(
     (consultation.diagnoses && consultation.diagnoses.length > 0) ||
     (consultation.soap_note?.assessment && consultation.soap_note.assessment.trim().length > 0)
@@ -502,11 +504,11 @@ export function ConsultationWorkspace({
           {/* PRIORITY 8: Comprehensive Patient Banner */}
           <Panel padding="md">
             <div className="flex items-center gap-3">
-              <PatientAvatar name={(consultation as any).patient_name || "Patient"} size="lg" status="in-consultation" />
+              <PatientAvatar name={consultation.patient_name || "Patient"} size="lg" status="in-consultation" />
               <div className="min-w-0">
-                <h2 className="text-base font-semibold text-foreground truncate">{(consultation as any).patient_name || "Patient"}</h2>
+                <h2 className="text-base font-semibold text-foreground truncate">{consultation.patient_name || "Patient"}</h2>
                 <p className="text-xs text-foreground-subtle">
-                  {(consultation as any).patient_age && (consultation as any).patient_age !== "Not Recorded" ? `${(consultation as any).patient_age}Y` : "Age: Not Recorded"} • {(consultation as any).patient_gender && (consultation as any).patient_gender !== "Not Recorded" ? (consultation as any).patient_gender : "Gender: Not Recorded"} • {(consultation as any).patient_blood_group && (consultation as any).patient_blood_group !== "Not Recorded" ? (consultation as any).patient_blood_group : "Blood: Not Recorded"}
+                  {consultation.patient_age && consultation.patient_age !== "Not Recorded" ? `${consultation.patient_age}Y` : "Age: Not Recorded"} • {consultation.patient_gender && consultation.patient_gender !== "Not Recorded" ? consultation.patient_gender : "Gender: Not Recorded"} • {consultation.patient_blood_group && consultation.patient_blood_group !== "Not Recorded" ? consultation.patient_blood_group : "Blood: Not Recorded"}
                 </p>
               </div>
             </div>
@@ -514,11 +516,11 @@ export function ConsultationWorkspace({
             <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
               <div className="panel p-2.5 bg-background-elevated/50 border border-border">
                 <p className="text-xs text-foreground-subtle">Phone</p>
-                <p className="font-medium text-foreground truncate">{(consultation as any).patient_phone_masked || "XXXX"}</p>
+                <p className="font-medium text-foreground truncate">{consultation.patient_phone_masked || "XXXX"}</p>
               </div>
               <div className="panel p-2.5 bg-background-elevated/50 border border-border">
                 <p className="text-xs text-foreground-subtle">Visit Type</p>
-                <p className="font-medium text-foreground capitalize">{(consultation as any).consultation_type || "Outpatient"}</p>
+                <p className="font-medium text-foreground capitalize">{consultation.consultation_type || "Outpatient"}</p>
               </div>
             </div>
 
@@ -757,9 +759,9 @@ export function ConsultationWorkspace({
                 <div>
                   <p className="text-sm font-medium text-foreground">Chief Complaint & Duration</p>
                   <p className="text-xs text-foreground-subtle">
-                    {(consultation as any).clinical_facts?.symptoms
-                      ? `${(consultation as any).clinical_facts.symptoms.join(", ")} — ${(consultation as any).clinical_facts.duration || "Current encounter"}`
-                      : (consultation as any).complaint_summary || "New Patient Consultation"}
+                    {consultation.clinical_facts?.symptoms
+                      ? `${consultation.clinical_facts.symptoms.join(", ")} — ${consultation.clinical_facts.duration || "Current encounter"}`
+                      : consultation.complaint_summary || "New Patient Consultation"}
                   </p>
                 </div>
               </div>
@@ -768,10 +770,10 @@ export function ConsultationWorkspace({
                 <div>
                   <p className="text-sm font-medium text-foreground">Medications Taken at Home</p>
                   <p className="text-xs text-foreground-subtle">
-                    {Array.isArray((consultation as any).clinical_facts?.medications_taken) && (consultation as any).clinical_facts.medications_taken.length > 0
-                      ? (consultation as any).clinical_facts.medications_taken.map((m: any) => `${m.drug_name} (${m.timing || 'at home'} - ${m.effect || 'taken'})`).join(", ")
-                      : Array.isArray((consultation as any).patient_current_medications) && (consultation as any).patient_current_medications.length > 0
-                      ? (consultation as any).patient_current_medications.join(", ")
+                    {Array.isArray(consultation.clinical_facts?.medications_taken) && consultation.clinical_facts.medications_taken.length > 0
+                      ? consultation.clinical_facts.medications_taken.map((m: any) => `${m.drug_name} (${m.timing || 'at home'} - ${m.effect || 'taken'})`).join(", ")
+                      : Array.isArray(consultation.patient_current_medications) && consultation.patient_current_medications.length > 0
+                      ? consultation.patient_current_medications.map((m) => (typeof m === "string" ? m : (m as Record<string, any>).drug_name || "Medication")).join(", ")
                       : "None reported"}
                   </p>
                 </div>
@@ -781,8 +783,8 @@ export function ConsultationWorkspace({
                 <div>
                   <p className="text-sm font-medium text-foreground">Exposures & Sick Contacts</p>
                   <p className="text-xs text-foreground-subtle">
-                    {Array.isArray((consultation as any).clinical_facts?.exposures) && (consultation as any).clinical_facts.exposures.length > 0
-                      ? (consultation as any).clinical_facts.exposures.join("; ")
+                    {Array.isArray(consultation.clinical_facts?.exposures) && consultation.clinical_facts.exposures.length > 0
+                      ? consultation.clinical_facts.exposures.join("; ")
                       : "No sick contacts reported"}
                   </p>
                 </div>
@@ -792,8 +794,8 @@ export function ConsultationWorkspace({
                 <div>
                   <p className="text-sm font-medium text-foreground">Documented Negative Findings</p>
                   <p className="text-xs text-foreground-subtle">
-                    {Array.isArray((consultation as any).clinical_facts?.negative_findings) && (consultation as any).clinical_facts.negative_findings.length > 0
-                      ? (consultation as any).clinical_facts.negative_findings.join(", ")
+                    {Array.isArray(consultation.clinical_facts?.negative_findings) && consultation.clinical_facts.negative_findings.length > 0
+                      ? consultation.clinical_facts.negative_findings.join(", ")
                       : "None explicitly documented"}
                   </p>
                 </div>
@@ -912,7 +914,7 @@ export function ConsultationWorkspace({
               <div className="space-y-4">
                 <SectionHeader icon={FileText} title="Auto-Generated SOAP" subtitle="Review and edit before approving" />
                 {(() => {
-                  const meta = (consultation as any).scribe_metadata;
+                  const meta = consultation.scribe_metadata;
                   if (!meta) return null;
                   const tier = meta.confidence_tier;
                   const warn = meta.confidence_warning;
@@ -1096,9 +1098,9 @@ export function ConsultationWorkspace({
                 {consultation.diagnoses && consultation.diagnoses.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {consultation.diagnoses.map((d, idx) => (
-                      <Badge key={idx} variant="blue" className={cn((d as any).is_provisional && "ring-1 ring-amber-500/40")}>
+                      <Badge key={idx} variant="blue" className={cn(d.is_provisional && "ring-1 ring-amber-500/40")}>
                         {d.code} <span className="text-foreground-subtle">{d.description}</span>
-                        {(d as any).is_provisional && <span className="text-amber-400 font-mono text-[9px] ml-1">PROVISIONAL</span>}
+                        {d.is_provisional && <span className="text-amber-400 font-mono text-[9px] ml-1">PROVISIONAL</span>}
                       </Badge>
                     ))}
                   </div>
@@ -1134,8 +1136,8 @@ export function ConsultationWorkspace({
           <SafetyFlagsPanel
             consultationId={consultation.consultation_id}
             medications={consultation.medications || []}
-            patientId={(consultation as any).patient_id}
-            existingEvaluation={hasSafetyEvaluation}
+            patientId={consultation.patient_id}
+            existingEvaluation={hasSafetyEvaluation ?? undefined}
           />
 
           <Panel padding="md">
@@ -1553,7 +1555,7 @@ export function ConsultationWorkspace({
         onClose={() => setShowFHIRModal(false)}
         consultationId={consultationId}
         patientId={consultation.patient_id}
-        patientName={(consultation as any).patient_name || "Patient"}
+        patientName={consultation.patient_name || "Patient"}
       />
 
       {/* Longitudinal Patient Summary Modal */}
@@ -1561,7 +1563,7 @@ export function ConsultationWorkspace({
         isOpen={showSummaryModal}
         onClose={() => setShowSummaryModal(false)}
         patientId={consultation.patient_id || ""}
-        patientName={(consultation as any).patient_name || "Patient"}
+        patientName={consultation.patient_name || "Patient"}
       />
     </div>
   );

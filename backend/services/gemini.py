@@ -5,13 +5,32 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional
 
-try:
-    import vertexai
-    from vertexai.generative_models import GenerativeModel, GenerationConfig
-except ImportError:
-    vertexai = None
-    GenerativeModel = None
-    GenerationConfig = None
+# Lazy import: vertexai pulls in the massive aiplatform/bigquery/shapely SDK tree
+# (~500k+ Python files worth of module loads). Importing it eagerly at module
+# import time blocks `import main` for minutes on slow/network-backed filesystems
+# (e.g. iCloud-synced Desktop). Defer to first actual use.
+vertexai = None
+GenerativeModel = None
+GenerationConfig = None
+_vertex_import_attempted = False
+
+
+def _ensure_vertex_imported():
+    global vertexai, GenerativeModel, GenerationConfig, _vertex_import_attempted
+    if _vertex_import_attempted:
+        return
+    _vertex_import_attempted = True
+    try:
+        import vertexai as _vx
+        from vertexai.generative_models import GenerativeModel as _GM, GenerationConfig as _GC
+        vertexai = _vx
+        GenerativeModel = _GM
+        GenerationConfig = _GC
+    except ImportError:
+        vertexai = None
+        GenerativeModel = None
+        GenerationConfig = None
+
 
 from config import settings
 
@@ -31,6 +50,7 @@ _last_live_execution: Dict[str, Any] = {
 def _ensure_vertex(location: str):
     """Initializes Vertex AI for a specific regional endpoint if not already configured for it."""
     global _current_vertex_location
+    _ensure_vertex_imported()
     if vertexai is not None and settings.GOOGLE_GENAI_USE_VERTEXAI:
         if _current_vertex_location != location:
             try:
@@ -71,6 +91,7 @@ class GeminiService:
 
     def get_status(self) -> Dict[str, Any]:
         """Returns Vertex AI readiness status and model configuration."""
+        _ensure_vertex_imported()
         return {
             "sdk_installed": vertexai is not None,
             "vertex_initialized": _current_vertex_location is not None,
@@ -120,11 +141,23 @@ class GeminiService:
             not settings.LIVE_CLINICAL_AI
         )
 
-        if vertexai is None or GenerativeModel is None or not settings.GOOGLE_GENAI_USE_VERTEXAI:
+        # Configuration gating MUST happen BEFORE any heavyweight Vertex SDK
+        # import. If Vertex AI is disabled, fail closed (or mock in dev)
+        # immediately without importing the heavyweight SDK tree.
+        if not settings.GOOGLE_GENAI_USE_VERTEXAI:
             if can_use_mock:
-                logger.warning(f"Vertex AI unavailable. Using developer mock fallback (AI_ALLOW_MOCK_FALLBACK=true).")
+                logger.warning("Vertex AI disabled. Using developer mock fallback (AI_ALLOW_MOCK_FALLBACK=true).")
                 return self._mock_fallback_response(prompt)
-            logger.error(f"Vertex AI unavailable for model '{target_model}' in live mode.")
+            logger.error(f"Vertex AI disabled for model '{target_model}' in live mode.")
+            raise RuntimeError(f"Vertex AI SDK or configuration unavailable for '{target_model}'. Live AI execution required.")
+
+        # Only now, when Vertex AI is enabled, import the heavyweight SDK.
+        _ensure_vertex_imported()
+        if vertexai is None or GenerativeModel is None:
+            if can_use_mock:
+                logger.warning("Vertex AI SDK unavailable. Using developer mock fallback (AI_ALLOW_MOCK_FALLBACK=true).")
+                return self._mock_fallback_response(prompt)
+            logger.error(f"Vertex AI SDK unavailable for model '{target_model}' in live mode.")
             raise RuntimeError(f"Vertex AI SDK or configuration unavailable for '{target_model}'. Live AI execution required.")
 
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt

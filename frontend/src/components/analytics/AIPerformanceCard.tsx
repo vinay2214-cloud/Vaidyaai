@@ -3,13 +3,11 @@
 import React from "react";
 import { ChartContainer } from "./ChartContainer";
 import { AgentCard } from "../shared/AgentCard";
-import { useAgentHealth } from "@/hooks/useAgentLogs";
+import { useAgentHealth } from "@/hooks/useAgentHealth";
 import { Activity } from "lucide-react";
 
 export const AIPerformanceCard: React.FC = () => {
-  const { healthData, loading } = useAgentHealth();
-
-  const agents = healthData?.agents || [];
+  const { agents, loading } = useAgentHealth();
 
   return (
     <ChartContainer title="Autonomous 7-Agent AI Workforce Performance" subtitle="Real-Time Task Execution, Latency & Health Matrix">

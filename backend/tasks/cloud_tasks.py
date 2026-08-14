@@ -5,12 +5,25 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 
-try:
-    from google.cloud import tasks_v2
-    from google.protobuf import timestamp_pb2
-except ImportError:
-    tasks_v2 = None
-    timestamp_pb2 = None
+# Lazy import: google.cloud.tasks_v2 brings in heavy protobuf / gRPC tree.
+tasks_v2 = None
+timestamp_pb2 = None
+_tasks_import_attempted = False
+
+
+def _ensure_tasks_imported():
+    global tasks_v2, timestamp_pb2, _tasks_import_attempted
+    if _tasks_import_attempted:
+        return
+    _tasks_import_attempted = True
+    try:
+        from google.cloud import tasks_v2 as _tv2
+        from google.protobuf import timestamp_pb2 as _ts
+        tasks_v2 = _tv2
+        timestamp_pb2 = _ts
+    except ImportError:
+        tasks_v2 = None
+        timestamp_pb2 = None
 
 from config import settings
 
@@ -21,6 +34,7 @@ _client: Optional[Any] = None
 
 def get_tasks_client() -> Optional[Any]:
     global _client
+    _ensure_tasks_imported()
     if settings.is_development:
         return None
     if _client is None and tasks_v2 is not None:

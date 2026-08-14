@@ -106,6 +106,7 @@ async def start_consultation_endpoint(
         cons = existing[0]
         return {
             "consultation_id": cons["consultation_id"],
+            "clinic_id": req.clinic_id,
             "patient_id": cons.get("patient_id", patient_id),
             "appointment_id": req.appointment_id,
             "status": cons.get("status", "draft"),
@@ -159,6 +160,7 @@ async def start_consultation_endpoint(
 
     return {
         "consultation_id": new_cons_id,
+        "clinic_id": req.clinic_id,
         "patient_id": patient_id,
         "appointment_id": req.appointment_id,
         "status": "draft",

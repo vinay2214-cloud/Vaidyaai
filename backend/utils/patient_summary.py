@@ -34,10 +34,13 @@ async def generate_patient_summary(
     consultations_raw = await query_documents(
         "consultations",
         [("patient_id", "==", patient_id), ("clinic_id", "==", clinic_id)],
-        order_by="created_at",
-        direction="DESCENDING",
         limit=limit,
     )
+
+    # query_documents does not support ordering; sort newest-first by created_at.
+    def _created_key(c):
+        return str(c.get("created_at", ""))
+    consultations_raw.sort(key=_created_key, reverse=True)
 
     reviewed = [c for c in consultations_raw if c.get("review_status") in ("CONFIRMED", "REQUIRES_REVIEW")]
 

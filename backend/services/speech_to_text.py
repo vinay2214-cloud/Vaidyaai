@@ -7,13 +7,27 @@ import logging
 import time
 from typing import List, Dict, Any, Optional
 
-try:
-    from google.cloud import speech_v1p1beta1 as speech
-except ImportError:
+# Lazy import: google.cloud.speech pulls in a heavy protobuf / gRPC SDK tree.
+# On iCloud-synced or network-backed filesystems the import can block for
+# minutes.  Defer to first actual use (same pattern as gemini.py / vertexai).
+speech = None
+_speech_import_attempted = False
+
+
+def _ensure_speech_imported():
+    global speech, _speech_import_attempted
+    if _speech_import_attempted:
+        return
+    _speech_import_attempted = True
     try:
-        from google.cloud import speech
+        from google.cloud import speech_v1p1beta1 as _s
+        speech = _s
     except ImportError:
-        speech = None
+        try:
+            from google.cloud import speech as _s
+            speech = _s
+        except ImportError:
+            speech = None
 
 from config import settings
 
@@ -67,6 +81,7 @@ class SpeechToTextService:
 
     def get_status(self) -> Dict[str, Any]:
         """Returns truthful status of audio processing dependencies."""
+        _ensure_speech_imported()
         return {
             "ffmpeg_available": self.ffmpeg_path is not None,
             "ffmpeg_path": self.ffmpeg_path,
@@ -82,6 +97,7 @@ class SpeechToTextService:
         Guarantees that gRPC channels are created inside the actual worker process,
         avoiding fork / Uvicorn reload boundary conflicts.
         """
+        _ensure_speech_imported()
         current_pid = os.getpid()
         if self._speech_client is None or self._client_pid != current_pid:
             if speech is not None and hasattr(speech, "SpeechClient"):

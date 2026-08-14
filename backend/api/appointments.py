@@ -227,6 +227,7 @@ async def create_walk_in_appointment(
 
     return {
         "appointment_id": app_id,
+        "clinic_id": req.clinic_id,
         "patient_id": patient_id,
         "patient_name": resolved_patient_name,
         "slot_date": today_date,

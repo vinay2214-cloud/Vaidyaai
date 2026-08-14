@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { useAgentLogs, useAgentHealth } from "@/hooks/useAgentLogs";
+import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { useAgentHealth } from "@/hooks/useAgentHealth";
 import { useClinicStore } from "@/store/clinicStore";
 import { useUIStore } from "@/store/uiStore";
 import { Panel, SectionHeader, ActivityFeed, ActivityItem, AIStatus, Button, Badge } from "@/components/design-system";
@@ -48,7 +49,7 @@ export default function AgentLogsPage() {
   const setSelectedAgentFilter = useUIStore((state) => state.setSelectedAgentFilter);
   const clinicId = useClinicStore((state) => state.clinicId);
   const { logs, loading } = useAgentLogs(selectedAgentFilter);
-  const { healthData } = useAgentHealth();
+  const { agents: healthAgents, platform } = useAgentHealth();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const items: ActivityItem[] = useMemo(
@@ -66,7 +67,6 @@ export default function AgentLogsPage() {
   );
 
   const stats = useMemo(() => {
-    const platform = healthData?.platform;
     if (platform) {
       return {
         total: platform.total_tasks_today,
@@ -82,7 +82,7 @@ export default function AgentLogsPage() {
     const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
     const distinctAgents = new Set(logs.map((l) => l.agent_name)).size;
     return { total, errors, avgLatency, activeAgents: distinctAgents, totalAgents: 7 };
-  }, [healthData, logs]);
+  }, [platform, logs]);
 
   const handleExportEvidence = async () => {
     if (!clinicId) return;
@@ -207,7 +207,7 @@ export default function AgentLogsPage() {
 
           <div className="space-y-2">
             {AGENTS.map((agent) => {
-              const agentHealth = healthData?.agents.find((a) => a.id === agent.id);
+              const agentHealth = healthAgents?.find((a) => a.id === agent.id);
               const agentLogs = logs.filter((l) => l.agent_name === agent.id);
               const tasksToday = agentHealth?.tasks_today ?? agentLogs.length;
               const statusText = agentHealth?.status || (tasksToday > 0 ? "Healthy" : "Idle");

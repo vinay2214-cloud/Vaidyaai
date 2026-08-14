@@ -38,7 +38,7 @@ function ConsultationContent() {
       }
       setActiveConsultation(
         consultation.consultation_id,
-        (consultation as any).patient_id,
+        consultation.patient_id,
         consultation.appointment_id
       );
     }

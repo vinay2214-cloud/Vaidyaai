@@ -150,9 +150,11 @@ class AppointmentFlowAgent(BaseAgent):
         phone_id = clinic.get("whatsapp_phone_id")
         access_token = clinic.get("whatsapp_access_token")
 
+        doctor_display = doctor_name if doctor_name.strip().lower().startswith(("dr", "dr.")) else "Dr. " + doctor_name
         reminder_text = REMINDER_TEMPLATES.get(language, REMINDER_TEMPLATES["en"]).format(
             time=slot_time_str,
             queue_position=queue_position,
+            doctor_display=doctor_display,
             doctor_name=doctor_name
         )
 
@@ -188,7 +190,9 @@ class AppointmentFlowAgent(BaseAgent):
         phone_id = clinic.get("whatsapp_phone_id")
         access_token = clinic.get("whatsapp_access_token")
 
+        doctor_display = doctor_name if doctor_name.strip().lower().startswith(("dr", "dr.")) else "Dr. " + doctor_name
         wellness_text = WELLNESS_TEMPLATES.get(language, WELLNESS_TEMPLATES["en"]).format(
+            doctor_display=doctor_display,
             doctor_name=doctor_name
         )
 
@@ -515,7 +519,9 @@ class AppointmentFlowAgent(BaseAgent):
 
         hours_str = "09:00 AM - 01:00 PM, 05:00 PM - 08:00 PM"
 
+        doctor_display = doctor_name if doctor_name.strip().lower().startswith(("dr", "dr.")) else "Dr. " + doctor_name
         enquiry_msg = ENQUIRY_TEMPLATES.get(language, ENQUIRY_TEMPLATES["en"]).format(
+            doctor_display=doctor_display,
             doctor_name=doctor_name,
             hours=hours_str,
             new_fee=new_fee,

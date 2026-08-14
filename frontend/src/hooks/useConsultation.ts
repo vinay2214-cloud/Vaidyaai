@@ -2,10 +2,28 @@ import { useEffect, useState, useCallback } from "react";
 import api from "../lib/api";
 import { useClinicStore } from "../store/clinicStore";
 
+export interface SafetyEvaluation {
+  is_safe: boolean;
+  confidence_score: number;
+  warnings_count: number;
+  warnings: Array<{ severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"; type: string; drugs_involved: string[]; message: string; recommendation: string }>;
+  safety_summary: string;
+  risk_level?: string;
+  flags?: Array<{ type: string; severity: string; description: string }>;
+  evaluated_at?: string;
+  provider?: string;
+  execution_status?: string;
+  stale?: boolean;
+  overridden?: boolean;
+  override_reason?: string;
+  error?: string | null;
+}
+
 export interface ConsultationData {
   consultation_id: string;
   clinic_id: string;
   appointment_id: string;
+  patient_id: string;
   transcript_raw: string;
   transcript_anonymised: string;
   soap_note: {
@@ -26,6 +44,20 @@ export interface ConsultationData {
   allergy_review_status?: string;
   allergy_alert?: string | null;
   scribe_metadata?: any;
+  // Enriched fields returned by GET /consultations/{id} (api/consultations.py)
+  patient_name?: string;
+  patient_phone_masked?: string;
+  patient_age?: string | number;
+  patient_gender?: string;
+  patient_blood_group?: string;
+  patient_chronic_diseases?: string[];
+  patient_current_medications?: Array<string | Record<string, any>>;
+  complaint_summary?: string;
+  chief_complaint?: string;
+  consultation_type?: string;
+  visit_count?: number;
+  total_visits?: number;
+  safety_evaluation?: SafetyEvaluation | null;
 }
 
 export function useConsultation(consultationId: string) {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { Download, Copy, Check, FileCode, X, Loader2, ShieldCheck } from "lucide-react";
 import api from "@/lib/api";
 
@@ -24,7 +24,7 @@ export function FHIRExportModal({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const fetchFHIR = async () => {
+  const fetchFHIR = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -43,13 +43,13 @@ export function FHIRExportModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, [consultationId, patientId]);
 
   React.useEffect(() => {
     if (isOpen && !fhirData && !loading) {
       fetchFHIR();
     }
-  }, [isOpen, patientId, consultationId]);
+  }, [isOpen, patientId, consultationId, fetchFHIR, fhirData, loading]);
 
   if (!isOpen) return null;
 

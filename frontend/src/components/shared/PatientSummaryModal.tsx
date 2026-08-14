@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Download, FileText, X, Loader2, ShieldCheck, Sparkles, AlertTriangle, Pill, Stethoscope, RefreshCw } from "lucide-react";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
@@ -23,7 +23,7 @@ export function PatientSummaryModal({
   const [summaryData, setSummaryData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSummary = async () => {
+  const fetchSummary = useCallback(async () => {
     if (!patientId || !clinicId) return;
     try {
       setLoading(true);
@@ -36,13 +36,13 @@ export function PatientSummaryModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, [patientId, clinicId]);
 
   useEffect(() => {
     if (isOpen && patientId && clinicId) {
       fetchSummary();
     }
-  }, [isOpen, patientId, clinicId]);
+  }, [isOpen, patientId, clinicId, fetchSummary]);
 
   if (!isOpen) return null;
 

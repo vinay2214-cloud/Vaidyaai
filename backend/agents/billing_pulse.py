@@ -123,6 +123,8 @@ class BillingPulseAgent(BaseAgent):
                 return {
                     "invoice_id": str(existing_invoice.id),
                     "invoice_number": existing_invoice.invoice_number,
+                    "patient_id": existing_invoice.patient_id,
+                    "consultation_id": existing_invoice.consultation_firestore_id,
                     "amount_paise": existing_invoice.amount_paise,
                     "amount_rupees": existing_invoice.amount_paise / 100.0,
                     "payment_link_id": existing_invoice.razorpay_payment_link_id,
@@ -191,7 +193,7 @@ class BillingPulseAgent(BaseAgent):
 
             invoice_msg = (
                 f"🧾 Invoice #{invoice_num}\n"
-                f"{clinic_name} — Dr. {doctor_name}\n\n"
+                f"{clinic_name} — {doctor_name if doctor_name.strip().lower().startswith(('dr','dr.')) else 'Dr. ' + doctor_name}\n\n"
                 f"Consultation: {consultation_type.capitalize()}\n"
                 f"Amount: ₹{amount_rupees:.2f}\n\n"
                 f"Pay securely via UPI / Razorpay:\n"
@@ -558,7 +560,7 @@ class BillingPulseAgent(BaseAgent):
             access_token = clinic_doc.get("whatsapp_access_token") if clinic_doc else None
 
             pnl_text = (
-                f"📊 Today's Summary — Dr. {doctor_name}'s Clinic\n"
+                f"📊 Today's Summary — {doctor_name if doctor_name.strip().lower().startswith(('dr','dr.')) else 'Dr. ' + doctor_name}'s Clinic\n"
                 f"Date: {format_display_date(datetime.now(timezone.utc))}\n\n"
                 f"Patients seen: {patients_seen}\n"
                 f"Billed: ₹{total_billed/100:.2f}\n"
@@ -578,7 +580,7 @@ class BillingPulseAgent(BaseAgent):
 
             await self.logger.log_decision(
                 decision_type="daily_pnl_sent",
-                decision_made=f"Sent daily P&L to Dr. {doctor_name}: Billed ₹{total_billed/100:.2f}, Collected ₹{collected/100:.2f}",
+                decision_made=f"Sent daily P&L to {doctor_name if doctor_name.strip().lower().startswith(('dr','dr.')) else 'Dr. ' + doctor_name}: Billed ₹{total_billed/100:.2f}, Collected ₹{collected/100:.2f}",
                 clinic_id=clinic_id
             )
 

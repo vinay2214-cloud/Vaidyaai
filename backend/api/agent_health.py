@@ -162,7 +162,9 @@ async def get_agent_health(
     total_failures = sum(a["failures_today"] for a in agents_health)
     all_latencies = [a["avg_latency_ms"] for a in agents_health if a["avg_latency_ms"] is not None and a["avg_latency_ms"] > 0]
     platform_avg_latency = round(sum(all_latencies) / len(all_latencies)) if all_latencies else 0
-    active_count = sum(1 for a in agents_health if a["tasks_today"] > 0 or a["status"] == "Idle")
+    # An agent is "active" only if it has actually executed work today (or is
+    # currently running). Merely being registered/Idle does not make it active.
+    active_count = sum(1 for a in agents_health if a["tasks_today"] > 0 or a["status"] == "Running")
 
     return {
         "clinic_id": clinic_id,

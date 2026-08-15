@@ -3,6 +3,7 @@ import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/f
 import { getFirestoreDb } from "../lib/firebase";
 import { useClinicStore } from "../store/clinicStore";
 import { BACKEND_URL } from "@/lib/constants";
+import { getAuthToken } from "@/lib/api";
 
 export interface AgentLog {
   id: string;
@@ -24,6 +25,72 @@ export interface AgentLog {
 export type StreamStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
 
 const MAX_LOGS = 50;
+const RECONNECT_DELAY_MS = 3000;
+
+/**
+ * Fetch-based Server-Sent Events client.
+ *
+ * Browser `EventSource` cannot attach an `Authorization` header, so we stream
+ * the `text/event-stream` response via `fetch` with the same bearer token the
+ * axios API client uses. This keeps backend authentication intact (no token in
+ * the URL, no unauthenticated SSE) while enabling real-time agent observability.
+ */
+async function streamEvents(
+  url: string,
+  token: string | null,
+  handlers: {
+    onOpen: () => void;
+    onEvent: (data: any) => void;
+    onError: () => void;
+  },
+  signal: AbortSignal
+): Promise<void> {
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(url, { headers, signal, cache: "no-store" });
+  if (!res.ok || !res.body) {
+    throw new Error(`SSE stream failed with status ${res.status}`);
+  }
+
+  handlers.onOpen();
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by a blank line.
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+
+    for (const part of parts) {
+      const lines = part.split("\n");
+      let eventType = "message";
+      let data = "";
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          eventType = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          data += line.slice(5).trim();
+        }
+      }
+      if (eventType === "event" && data) {
+        try {
+          handlers.onEvent(JSON.parse(data));
+        } catch {
+          // ignore malformed event payloads
+        }
+      }
+    }
+  }
+}
 
 export function useAgentLogs(filterAgent?: string | null) {
   const clinicId = useClinicStore((state) => state.clinicId);
@@ -32,8 +99,9 @@ export function useAgentLogs(filterAgent?: string | null) {
   const [streamStatus, setStreamStatus] = useState<StreamStatus>("connecting");
   const seenIds = useRef<Set<string>>(new Set());
 
-  // Real-time transport: SSE stream from the backend event bus, with Firestore
-  // onSnapshot as a fallback for environments without a live stream.
+  // Real-time transport: authenticated fetch-based SSE stream from the backend
+  // event bus, with Firestore onSnapshot as a fallback for environments without
+  // a live stream.
   useEffect(() => {
     if (!clinicId) {
       setLoading(false);
@@ -41,62 +109,70 @@ export function useAgentLogs(filterAgent?: string | null) {
       return;
     }
 
-    let es: EventSource | null = null;
+    let controller: AbortController | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
-    const connect = () => {
+    const connect = async () => {
       if (cancelled) return;
       setStreamStatus("connecting");
       try {
-        es = new EventSource(`${BACKEND_URL}/api/v1/stream/events`);
+        const token = await getAuthToken();
+        if (cancelled) return;
+        controller = new AbortController();
+        await streamEvents(
+          `${BACKEND_URL}/api/v1/stream/events`,
+          token,
+          {
+            onOpen: () => {
+              if (!cancelled) {
+                setStreamStatus("connected");
+                setLoading(false);
+              }
+            },
+            onEvent: (data) => {
+              if (cancelled) return;
+              const eventId = data.event_id || `evt_${Date.now()}_${Math.random()}`;
+              if (seenIds.current.has(eventId)) return; // dedup
+              seenIds.current.add(eventId);
+              const log: AgentLog = {
+                id: eventId,
+                agent_name: data.event_type || "event",
+                decision_type: `event:${data.event_type || "unknown"}`,
+                decision_made: data.payload?.decision_made || `Emitted ${data.event_type || "event"}`,
+                clinic_id: data.clinic_id || clinicId,
+                patient_id: data.patient_id,
+                consultation_id: data.consultation_id,
+                created_at: data.created_at ? new Date(data.created_at) : new Date(),
+                success: true,
+              };
+              if (!filterAgent || log.agent_name === filterAgent) {
+                setLogs((prev) => [log, ...prev].slice(0, MAX_LOGS));
+              }
+            },
+            onError: () => {
+              if (cancelled) return;
+              setStreamStatus("reconnecting");
+            },
+          },
+          controller.signal
+        );
+        // Stream ended cleanly (server closed). Treat as disconnected.
+        if (!cancelled) {
+          setStreamStatus("disconnected");
+          setLoading(false);
+        }
       } catch (e) {
-        setStreamStatus("disconnected");
-        return;
+        if (cancelled) return;
+        // AbortError means we intentionally closed the connection.
+        if ((e as Error)?.name === "AbortError") return;
+        setStreamStatus("reconnecting");
+        setLoading(false);
       }
 
-      es.onopen = () => {
-        if (!cancelled) setStreamStatus("connected");
-      };
-
-      es.addEventListener("connected", () => {
-        if (!cancelled) setStreamStatus("connected");
-      });
-
-      es.addEventListener("event", (evt) => {
-        if (cancelled) return;
-        try {
-          const data = JSON.parse((evt as MessageEvent).data);
-          const eventId = data.event_id || `evt_${Date.now()}_${Math.random()}`;
-          if (seenIds.current.has(eventId)) return; // dedup
-          seenIds.current.add(eventId);
-          const log: AgentLog = {
-            id: eventId,
-            agent_name: data.event_type || "event",
-            decision_type: `event:${data.event_type || "unknown"}`,
-            decision_made: data.payload?.decision_made || `Emitted ${data.event_type || "event"}`,
-            clinic_id: data.clinic_id || clinicId,
-            patient_id: data.patient_id,
-            consultation_id: data.consultation_id,
-            created_at: data.created_at ? new Date(data.created_at) : new Date(),
-            success: true,
-          };
-          if (!filterAgent || log.agent_name === filterAgent) {
-            setLogs((prev) => [log, ...prev].slice(0, MAX_LOGS));
-          }
-        } catch (e) {
-          // ignore malformed events
-        }
-      });
-
-      es.onerror = () => {
-        if (cancelled) return;
-        setStreamStatus("reconnecting");
-        es?.close();
-        es = null;
-        // SSE spec auto-reconnects, but we schedule a manual retry as well.
-        reconnectTimer = setTimeout(connect, 3000);
-      };
+      if (cancelled) return;
+      // Schedule a manual reconnect after a transient disconnect.
+      reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
     };
 
     connect();
@@ -104,7 +180,7 @@ export function useAgentLogs(filterAgent?: string | null) {
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      es?.close();
+      controller?.abort();
     };
   }, [clinicId, filterAgent]);
 

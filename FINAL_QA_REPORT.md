@@ -87,7 +87,7 @@ automated test suite.
 
 | Check | Result |
 |---|---|
-| Backend test suite | **141 / 141 passed** (138 baseline + 3 new) |
+| Backend test suite | **149 / 149 passed** (138 baseline + 3 pricing + 5 SSE + 2 patient + 1 STT) |
 | E2E clinical workflow | **26 / 26 passed** |
 | Frontend production build | **11 / 11 routes, 0 errors, 0 warnings** |
 | Frontend TypeScript | `tsc --noEmit` clean |
@@ -111,9 +111,33 @@ automated test suite.
 
 ---
 
-## 6. Conclusion
+## 6. Copilot Review Remediation (SSE Security & Frontend Defects)
+
+A follow-up code review surfaced 8 actionable findings, all fixed and verified.
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 1 | **P0** | SSE stream had no per-event tenant isolation — a user for Clinic A could receive Clinic B's events | `is_event_authorized()` fail-closed gate in `stream.py`; events with missing/mismatched `clinic_id` are dropped; no-clinic-scope users get an empty stream |
+| 2 | **P0** | `useAgentLogs.ts` used `EventSource`, which cannot send an `Authorization` header (unauthenticated SSE) | Replaced with a fetch-based SSE client that sends the same bearer token as the axios API client (`getAuthToken()` in `lib/api.ts`) |
+| 3 | **P1** | Patient timeline sorted by localized `date` strings (not lexicographically sortable) | Added canonical ISO `timestamp` to timeline items; sorting now uses `timestamp` |
+| 4 | **P1** | Global `patientStore` retained the previous patient's allergies after navigating away (stale safety alerts in RightSidebar) | Identity-aware `clearCurrentPatientIf()` cleanup on patient-page unmount (race-safe) |
+| 5 | **P1** | Prescription PDF download URL was built by raw string interpolation (invalid URL risk) | `encodeURIComponent` + `URLSearchParams`; fails safe when consultation/clinic missing |
+| 6 | **P1** | Mutable Pydantic list defaults (`= []`) shared one list across instances | `Field(default_factory=list)` in `PatientCreateRequest`/`PatientRegisterRequest` |
+| 7 | **P2** | SSE `loading` state never cleared on stream open | `setLoading(false)` on `onOpen`; accurate `streamStatus` transitions |
+| 8 | **P2** | Billing estimate recomputed on every medication/investigation edit (redundant requests) | Derived stable `medicationCount`/`investigationCount`; effect depends on counts, not array contents |
+
+### New regression tests
+- `backend/tests/test_stream_tenant_isolation.py` (new — 5 tests): fail-closed
+  tenant gate, missing clinic_id, no-clinic-scope, exact-match-only.
+- `backend/tests/test_patients.py` (+2 tests): mutable list defaults are isolated
+  per instance.
+
+---
+
+## 7. Conclusion
 
 All identified cross-panel contradictions are resolved with single-source-of-truth
-services, and the real-time transport is functional. The full automated suite
-(141 tests) and the E2E clinical workflow (26 checks) pass. The frontend builds
-cleanly with zero warnings. VaidyaAI is ready for demo and deployment.
+services, the real-time transport is functional and now tenant-isolated, and the
+8 Copilot review findings are fixed with regression coverage. The full automated
+suite (**149 tests**) and the E2E clinical workflow (26 checks) pass. The frontend
+builds cleanly with zero warnings. VaidyaAI is ready for demo and deployment.

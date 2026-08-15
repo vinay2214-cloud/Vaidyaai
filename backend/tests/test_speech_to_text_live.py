@@ -4,6 +4,7 @@ Validates exact Google Cloud Speech-to-Text single-request construction, process
 fail-closed clinical policies, and end-to-end audio processing.
 """
 import os
+import shutil
 import sys
 import tempfile
 import wave
@@ -26,6 +27,19 @@ def create_dummy_wav(path: str, duration_sec: float = 1.0, sample_rate: int = 16
         # Generate silence/low noise
         data = struct.pack("<" + "h" * num_frames, *[0] * num_frames)
         wav_file.writeframes(data)
+
+
+def _fake_concat_success(chunk_paths, output_path):
+    """Deterministic stand-in for FFmpeg concatenation.
+
+    Copies the first chunk to the output path and reports success so tests that
+    target the SpeechClient request-construction / fail-closed boundary can run
+    without a real FFmpeg binary. This does NOT weaken the production audio
+    pipeline; it only isolates the preprocessing boundary in unit tests.
+    """
+    if chunk_paths and os.path.isfile(chunk_paths[0]):
+        shutil.copyfile(chunk_paths[0], output_path)
+    return True
 
 
 @pytest.fixture
@@ -52,7 +66,8 @@ async def test_1_speech_client_single_request_object(stt_service):
     mock_client.recognize.return_value = mock_response
 
     with patch("services.speech_to_text.speech", create=True) as mock_speech, \
-         patch.object(stt_service, "_get_client", return_value=mock_client):
+         patch.object(stt_service, "_get_client", return_value=mock_client), \
+         patch.object(stt_service, "concat_audio_chunks", side_effect=_fake_concat_success):
         mock_speech.RecognitionAudio = MagicMock()
         mock_speech.RecognitionConfig = MagicMock()
         mock_speech.RecognizeRequest = MagicMock()
@@ -180,12 +195,42 @@ async def test_6_stt_api_failure_does_not_fabricate_mock(stt_service):
 
     with patch("services.speech_to_text.speech", create=True) as mock_speech, \
          patch.object(stt_service, "_get_client", return_value=mock_client), \
+         patch.object(stt_service, "concat_audio_chunks", side_effect=_fake_concat_success), \
          patch.object(settings, "LIVE_CLINICAL_AI", True), \
          patch.object(settings, "AI_ALLOW_MOCK_FALLBACK", False):
         mock_speech.RecognitionAudio = MagicMock()
         mock_speech.RecognitionConfig = MagicMock()
         mock_speech.RecognizeRequest = MagicMock()
         
+        with pytest.raises(RuntimeError) as excinfo:
+            await stt_service.transcribe_audio_chunks([wav_path])
+        assert "Google Cloud Speech-to-Text inference failed" in str(excinfo.value) or "Google Cloud Speech-to-Text client is unavailable" in str(excinfo.value)
+
+    if os.path.exists(wav_path):
+        os.remove(wav_path)
+
+
+@pytest.mark.asyncio
+async def test_6b_live_clinical_ai_never_fabricates_mock_even_when_fallback_enabled(stt_service):
+    """TEST 6b: LIVE_CLINICAL_AI=True must NEVER fabricate mock transcription,
+    even when AI_ALLOW_MOCK_FALLBACK=True. This is a clinical safety invariant."""
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        wav_path = f.name
+    create_dummy_wav(wav_path, duration_sec=0.2)
+
+    mock_client = MagicMock()
+    mock_client.recognize.side_effect = Exception("Google Cloud Quota Exceeded")
+
+    with patch("services.speech_to_text.speech", create=True) as mock_speech, \
+         patch.object(stt_service, "_get_client", return_value=mock_client), \
+         patch.object(stt_service, "concat_audio_chunks", side_effect=_fake_concat_success), \
+         patch.object(settings, "LIVE_CLINICAL_AI", True), \
+         patch.object(settings, "AI_ALLOW_MOCK_FALLBACK", True), \
+         patch.object(settings, "ENVIRONMENT", "development"):
+        mock_speech.RecognitionAudio = MagicMock()
+        mock_speech.RecognitionConfig = MagicMock()
+        mock_speech.RecognizeRequest = MagicMock()
+
         with pytest.raises(RuntimeError) as excinfo:
             await stt_service.transcribe_audio_chunks([wav_path])
         assert "Google Cloud Speech-to-Text inference failed" in str(excinfo.value) or "Google Cloud Speech-to-Text client is unavailable" in str(excinfo.value)
@@ -206,6 +251,7 @@ async def test_7_dev_mock_allowed_only_when_explicitly_configured(stt_service):
 
     with patch("services.speech_to_text.speech", create=True) as mock_speech, \
          patch.object(stt_service, "_get_client", return_value=mock_client), \
+         patch.object(stt_service, "concat_audio_chunks", side_effect=_fake_concat_success), \
          patch.object(settings, "LIVE_CLINICAL_AI", False), \
          patch.object(settings, "AI_ALLOW_MOCK_FALLBACK", True), \
          patch.object(settings, "ENVIRONMENT", "development"):
@@ -224,14 +270,27 @@ async def test_7_dev_mock_allowed_only_when_explicitly_configured(stt_service):
 
 def test_8_process_safe_client_lifecycle(stt_service):
     """TEST 11: SpeechClient is recreated if process PID changes (fork safe)."""
-    with patch("services.speech_to_text.speech", create=True) as mock_speech:
+    # Patch _ensure_speech_imported to a no-op so the patched `speech` module is
+    # used deterministically and never overwritten by the real google-cloud-speech
+    # import (which would attempt real ADC credential initialization and leave
+    # _client_pid unset in a credential-less CI environment).
+    with patch("services.speech_to_text._ensure_speech_imported"), \
+         patch("services.speech_to_text.speech", create=True) as mock_speech:
         mock_speech.SpeechClient = MagicMock()
         client1 = stt_service._get_client()
         initial_pid = stt_service._client_pid
         assert initial_pid == os.getpid()
+
+        # Same process: requesting again reuses the same client instance.
+        client1_again = stt_service._get_client()
+        assert client1_again is client1
+        assert stt_service._client_pid == os.getpid()
 
         # Simulate process fork / PID change
         stt_service._client_pid = initial_pid + 999
         # Requesting client again should re-initialize for new PID
         client2 = stt_service._get_client()
         assert stt_service._client_pid == os.getpid()
+        # The client is recreated (a fresh SpeechClient is constructed) after the
+        # PID change; the mock's constructor is invoked again for the new PID.
+        assert mock_speech.SpeechClient.call_count >= 2

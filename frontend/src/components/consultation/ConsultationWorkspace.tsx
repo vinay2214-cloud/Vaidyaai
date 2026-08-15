@@ -160,6 +160,14 @@ export function ConsultationWorkspace({
     return () => { cancelled = true; };
   }, [clinicId]);
 
+  // Stable derived counts: the billing estimate request only depends on the
+  // NUMBER of medications/investigations, not their contents. Deriving stable
+  // scalar values here means editing dosage text or investigation details does
+  // NOT trigger a redundant pricing request, while adding/removing an item
+  // (which changes the count) still does.
+  const medicationCount = consultation.medications?.length || 0;
+  const investigationCount = consultation.investigations?.length || 0;
+
   // Canonical billing estimate from the backend pricing service so the estimate
   // always matches the final invoice.
   useEffect(() => {
@@ -171,8 +179,8 @@ export function ConsultationWorkspace({
         const res = await api.post("/billing/estimate", {
           clinic_id: clinicId,
           consultation_type: consultation.consultation_type || "new",
-          medication_count: consultation.medications?.length || 0,
-          investigation_count: consultation.investigations?.length || 0,
+          medication_count: medicationCount,
+          investigation_count: investigationCount,
         });
         if (cancelled) return;
         const d = res.data;
@@ -193,7 +201,7 @@ export function ConsultationWorkspace({
     }
     loadEstimate();
     return () => { cancelled = true; };
-  }, [clinicId, consultation.consultation_type, consultation.medications, consultation.investigations]);
+  }, [clinicId, consultation.consultation_type, medicationCount, investigationCount]);
 
   useEffect(() => {
     let cancelled = false;

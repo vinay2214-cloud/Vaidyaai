@@ -18,7 +18,10 @@ export type LongitudinalItemType =
 export interface LongitudinalTimelineItem {
   id: string;
   type: LongitudinalItemType;
+  /** Human-readable date shown in the UI (localized at render time). */
   date: string;
+  /** Canonical ISO timestamp used for chronological sorting. */
+  timestamp?: string;
   title: string;
   summary: string;
   clinician: string;

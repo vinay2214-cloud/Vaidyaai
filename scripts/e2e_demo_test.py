@@ -6,6 +6,7 @@ Validates all 7 autonomous AI agents in sequence with high-precision stage profi
 import sys
 import os
 import json
+import tempfile
 import time
 import asyncio
 from datetime import datetime, timezone
@@ -142,12 +143,24 @@ async def run_e2e_demo_test():
     print("STEP 3: ClinicalScribe Agent (Agent 2) - SOAP Note")
     t3 = time.perf_counter()
     try:
+        # Use a verified transcript text file (the STT service treats a single
+        # .txt chunk as a verified transcript for clinical testing harnesses),
+        # so this step does not depend on a real FFmpeg binary or audio file.
+        transcript_path = os.path.join(tempfile.gettempdir(), "vaidyaai_e2e_transcript.txt")
+        with open(transcript_path, "w", encoding="utf-8") as tf:
+            tf.write(
+                "[Doctor]: Good morning. What symptoms are you experiencing today?\n"
+                "[Patient]: Doctor, I have high fever and dry cough for 2 days along with body aches.\n"
+                "[Doctor]: Let me check your vitals. Temp is 101.4F, BP 130/80. Lungs are clear.\n"
+                "[Patient]: Do I need antibiotics?\n"
+                "[Doctor]: This appears to be a viral infection. I am prescribing Paracetamol 650mg after food."
+            )
         agent2 = ClinicalScribeAgent()
         res2 = await agent2.process_consultation_audio(
             consultation_id=cons_id,
             clinic_id=clinic_id,
             appointment_id=appt_id,
-            chunk_paths=["mock_chunk.webm"],
+            chunk_paths=[transcript_path],
             patient_history="Known Hypertension, no allergies",
             vitals="BP 130/80, Temp 98.6F",
             language_code="te-IN"

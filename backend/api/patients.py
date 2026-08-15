@@ -29,8 +29,8 @@ class PatientCreateRequest(BaseModel):
     name: str
     age: Optional[int] = None
     gender: Optional[str] = None
-    allergies: Optional[List[str]] = []
-    chronic_conditions: Optional[List[str]] = []
+    allergies: Optional[List[str]] = Field(default_factory=list)
+    chronic_conditions: Optional[List[str]] = Field(default_factory=list)
     blood_group: Optional[str] = None
 
 
@@ -41,8 +41,8 @@ class PatientRegisterRequest(BaseModel):
     age: Optional[int] = None
     gender: Optional[str] = None
     complaint_summary: Optional[str] = "New Patient Consultation"
-    allergies: Optional[List[str]] = []
-    chronic_conditions: Optional[List[str]] = []
+    allergies: Optional[List[str]] = Field(default_factory=list)
+    chronic_conditions: Optional[List[str]] = Field(default_factory=list)
     blood_group: Optional[str] = None
 
 

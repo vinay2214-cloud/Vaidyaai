@@ -3,6 +3,31 @@ import { getFirebaseAuth } from "./firebase";
 import { BACKEND_URL } from "./constants";
 import { logout, isDevAuthBypassEnabled } from "./auth";
 
+/**
+ * Resolve the current bearer token for the authenticated user.
+ *
+ * Single source of truth for authentication so the axios API client and the
+ * fetch-based SSE stream share the exact same credential. In development with
+ * the auth bypass flag enabled this returns the dev mock token; otherwise it
+ * mints a fresh Firebase ID token from the signed-in user.
+ *
+ * Returns null when no authenticated user is available (caller must not send
+ * an Authorization header in that case).
+ */
+export async function getAuthToken(): Promise<string | null> {
+  if (isDevAuthBypassEnabled()) {
+    return "dev_mock_id_token";
+  }
+  if (typeof window !== "undefined") {
+    const auth = getFirebaseAuth();
+    const user = auth?.currentUser;
+    if (user) {
+      return await user.getIdToken();
+    }
+  }
+  return null;
+}
+
 export const api = axios.create({
   baseURL: `${BACKEND_URL}/api/v1`,
   timeout: 10000, // default 10s
@@ -27,15 +52,9 @@ api.interceptors.request.use(async (config) => {
     config.timeout = 5000; // 5s for fast read operations
   }
 
-  if (isDevAuthBypassEnabled()) {
-    config.headers.Authorization = `Bearer dev_mock_id_token`;
-  } else if (typeof window !== "undefined") {
-    const auth = getFirebaseAuth();
-    const user = auth?.currentUser;
-    if (user) {
-      const token = await user.getIdToken();
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+  const token = await getAuthToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 }, (error) => {

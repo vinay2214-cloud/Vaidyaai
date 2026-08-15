@@ -162,14 +162,18 @@ def fhir_provenance(provenance_id, target_reference, agent_name, agent_type="aut
     return r
 
 
-def fhir_composition(composition_id, patient_id, encounter_id, author_id,
+def fhir_composition(composition_id, patient_id, author_id, encounter_id=None,
                      title="Patient Summary", sections=None):
     r = {"resourceType": "Composition", "id": composition_id, "meta": _meta("Composition"),
          "status": "preliminary",
          "type": {"coding": [{"system": LOINC, "code": "11502-2", "display": "Laboratory report"}], "text": title},
          "subject": {"reference": f"Patient/{patient_id}"},
-         "encounter": {"reference": f"Encounter/{encounter_id}"},
          "date": _now_iso(), "author": [{"reference": f"Practitioner/{author_id}"}], "title": title}
+    # Composition.encounter is optional (0..1) and must only be set when the
+    # referenced Encounter actually exists in the bundle. A longitudinal patient
+    # summary spans many encounters, so it carries no single encounter reference.
+    if encounter_id:
+        r["encounter"] = {"reference": f"Encounter/{encounter_id}"}
     if sections:
         r["section"] = sections
     return r
@@ -264,12 +268,24 @@ async def export_consultation_to_fhir(consultation, patient, clinic):
     if role:
         resources.append(role)
 
+    appointment_id = consultation.get("appointment_id")
     resources.append(fhir_encounter(
         consultation_id=consultation_id, patient_id=patient_id, clinic_id=clinic_id,
-        practitioner_id=practitioner_id, appointment_id=consultation.get("appointment_id"),
+        practitioner_id=practitioner_id, appointment_id=appointment_id,
         status="finished" if consultation.get("status") == "approved" else "in-progress",
         start_time=str(consultation.get("created_at", "")),
         end_time=str(consultation.get("approved_at", "")) if consultation.get("approved_at") else None))
+
+    # The Encounter references Appointment/{appointment_id} when an appointment
+    # exists; the referenced Appointment resource MUST be present in the bundle
+    # or the export is not a valid FHIR Bundle (broken reference).
+    if appointment_id:
+        resources.append(fhir_appointment(
+            appointment_id=appointment_id, patient_id=patient_id,
+            practitioner_id=practitioner_id,
+            status="finished" if consultation.get("status") == "approved" else "booked",
+            start=str(consultation.get("created_at", "")) or None,
+            description=consultation.get("complaint_summary") or consultation.get("chief_complaint")))
 
     for i, diag in enumerate(consultation.get("diagnoses", [])):
         d = diag if isinstance(diag, dict) else {"description": str(diag)}
@@ -357,12 +373,22 @@ async def export_patient_summary_to_fhir(patient, consultations, clinic):
 
     for consultation in consultations:
         consultation_id = consultation.get("consultation_id", "")
+        appointment_id = consultation.get("appointment_id")
 
         resources.append(fhir_encounter(
             consultation_id=consultation_id, patient_id=patient_id, clinic_id=clinic_id,
-            practitioner_id=practitioner_id, appointment_id=consultation.get("appointment_id"),
+            practitioner_id=practitioner_id, appointment_id=appointment_id,
             status="finished" if consultation.get("status") == "approved" else "in-progress",
             start_time=str(consultation.get("created_at", ""))))
+
+        # Keep the Appointment reference resolvable within the bundle.
+        if appointment_id:
+            resources.append(fhir_appointment(
+                appointment_id=appointment_id, patient_id=patient_id,
+                practitioner_id=practitioner_id,
+                status="finished" if consultation.get("status") == "approved" else "booked",
+                start=str(consultation.get("created_at", "")) or None,
+                description=consultation.get("complaint_summary") or consultation.get("chief_complaint")))
 
         for i, diag in enumerate(consultation.get("diagnoses", [])):
             d = diag if isinstance(diag, dict) else {"description": str(diag)}
@@ -417,7 +443,7 @@ async def export_patient_summary_to_fhir(patient, consultations, clinic):
 
     composition = fhir_composition(
         composition_id=f"summary_{patient_id}",
-        patient_id=patient_id, encounter_id=f"summary_{patient_id}",
+        patient_id=patient_id,
         author_id=practitioner_id, title="Patient Summary (IPS)",
         sections=[
             {"title": "Active Problems", "code": {"coding": [{"system": LOINC, "code": "11450-4"}]},

@@ -28,12 +28,26 @@ logger = logging.getLogger("vaidyaai.seed_demo_data")
 
 CLINIC_ID = "cln_e2e_test_clinic"
 
+# Every seeded record is fictional. These markers make synthetic data
+# unambiguously identifiable so it can never be mistaken for real clinical
+# activity or real commercial revenue.
+DEMO_MARKERS = {"is_demo_data": True, "data_source": "SYNTHETIC_DEMO"}
+
+
+async def seed_document(collection: str, doc_id: str, data: dict):
+    """Write a seeded document stamped as synthetic demo data.
+
+    Uses stable document IDs so re-running the seed overwrites in place
+    (idempotent) instead of creating duplicates.
+    """
+    return await set_document(collection, doc_id, {**data, **DEMO_MARKERS})
+
 
 async def seed_firestore():
     logger.info("🌱 Seeding Firestore Collections for Demo Mode...")
 
     # 1. Clinic Profile
-    await set_document("clinics", CLINIC_ID, {
+    await seed_document("clinics", CLINIC_ID, {
         "clinic_id": CLINIC_ID,
         "name": "Arogya Wellness Family Practice",
         "doctor_name": "Dr. Ramesh H. Rao",
@@ -60,8 +74,8 @@ async def seed_firestore():
         "role": "doctor",
         "created_at": datetime.now(timezone.utc)
     }
-    await set_document("clinic_users", "dev_doctor_001", user_mapping)
-    await set_document("clinic_users", "doc_e2e_test_user", user_mapping)
+    await seed_document("clinic_users", "dev_doctor_001", user_mapping)
+    await seed_document("clinic_users", "doc_e2e_test_user", user_mapping)
 
     # 2. Patients
     patients = [
@@ -110,7 +124,7 @@ async def seed_firestore():
     ]
 
     for p in patients:
-        await set_document("patients", p["patient_id"], p)
+        await seed_document("patients", p["patient_id"], p)
 
     # 3. Appointments
     today_str = get_today_ist_date_str()
@@ -157,10 +171,10 @@ async def seed_firestore():
     ]
 
     for a in appointments:
-        await set_document("appointments", a["appointment_id"], a)
+        await seed_document("appointments", a["appointment_id"], a)
 
     # 4. Consultation & SOAP
-    await set_document("consultations", "cons_001", {
+    await seed_document("consultations", "cons_001", {
         "consultation_id": "cons_001",
         "clinic_id": CLINIC_ID,
         "appointment_id": "app_001",
@@ -196,7 +210,7 @@ async def seed_firestore():
     ]
 
     for log in agent_logs:
-        await set_document("agent_logs", log["id"], log)
+        await seed_document("agent_logs", log["id"], log)
 
     logger.info("  ✓ Firestore demo data seeded successfully.")
 

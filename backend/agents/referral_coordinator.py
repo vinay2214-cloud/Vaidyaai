@@ -12,6 +12,36 @@ from utils.phone_utils import mask_phone
 
 logger = logging.getLogger("vaidyaai.agents.referral_coordinator")
 
+# Canonical referral urgency vocabulary (matches the referral extraction prompt).
+# The application must NEVER execute None.upper(), so any null/empty/invalid
+# value is safely normalized to the default "routine".
+REFERRAL_URGENCY_VOCABULARY = {"routine", "urgent"}
+DEFAULT_REFERRAL_URGENCY = "routine"
+# Out-of-vocabulary values that are clinically an escalation must never be
+# silently downgraded to "routine" — they map onto the highest canonical level.
+REFERRAL_URGENCY_ESCALATION_ALIASES = {
+    "emergency", "emergent", "stat", "immediate", "immediately",
+    "asap", "critical", "high",
+}
+
+
+def normalize_referral_urgency(raw_urgency: Any) -> str:
+    """Safely normalize a referral urgency value to the canonical vocabulary.
+
+    Handles None, empty strings, non-string types, and out-of-vocabulary values.
+    Escalation synonyms (e.g. "emergency") map to "urgent" so urgency is never
+    silently downgraded; anything else falls back to "routine". This guarantees
+    the downstream ``urgency.upper()`` call can never receive None.
+    """
+    if raw_urgency is None:
+        return DEFAULT_REFERRAL_URGENCY
+    normalized = str(raw_urgency).strip().lower()
+    if normalized in REFERRAL_URGENCY_VOCABULARY:
+        return normalized
+    if normalized in REFERRAL_URGENCY_ESCALATION_ALIASES:
+        return "urgent"
+    return DEFAULT_REFERRAL_URGENCY
+
 
 class ReferralCoordinatorAgent(BaseAgent):
     """
@@ -57,7 +87,9 @@ class ReferralCoordinatorAgent(BaseAgent):
         )
 
         target_speciality = speciality or referral_res.get("speciality", "Specialist Consultation")
-        urgency = referral_res.get("urgency", "routine")
+        # Normalize urgency safely: Gemini may return null/empty/invalid, which
+        # must never reach urgency.upper() as None.
+        urgency = normalize_referral_urgency(referral_res.get("urgency"))
         referral_letter = referral_res.get(
             "formal_referral_letter",
             f"Dear Doctor / Colleague,\n\nReferred patient for evaluation regarding {target_speciality}.\n\nThank you,\n{doctor_name}"
@@ -88,7 +120,14 @@ class ReferralCoordinatorAgent(BaseAgent):
                 from sqlalchemy import select
                 from models.clinic import Clinic
                 res = await db.execute(select(Clinic.id).where(Clinic.firebase_clinic_id == clinic_id))
-                clinic_pg_id = res.scalar_one_or_none() or 1
+                clinic_pg_id = res.scalar_one_or_none()
+                if clinic_pg_id is None:
+                    # clinics.id is a UUID FK — a placeholder integer would raise
+                    # on insert and the row would be dropped anyway. Skip the
+                    # relational mirror explicitly; Firestore holds the referral.
+                    raise LookupError(
+                        f"clinic '{clinic_id}' is not registered in the relational store"
+                    )
 
                 referral_pg = ReferralTracking(
                     clinic_id=clinic_pg_id,
@@ -103,8 +142,14 @@ class ReferralCoordinatorAgent(BaseAgent):
                 )
                 db.add(referral_pg)
                 await db.commit()
+        except LookupError as e:
+            logger.warning(
+                f"Referral {referral_id} kept in Firestore only — relational mirror skipped: {e}"
+            )
         except Exception as e:
-            logger.warning(f"Could not save referral to Postgres: {e}")
+            logger.error(
+                f"Could not save referral {referral_id} to Postgres: {e}", exc_info=True
+            )
 
         whatsapp_msg = (
             f"Namaste! Dr. Ramesh from Tirupati Clinic has prepared a formal specialist referral letter for you.\n\n"

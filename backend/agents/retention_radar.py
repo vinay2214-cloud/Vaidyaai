@@ -94,21 +94,35 @@ class RetentionRadarAgent(BaseAgent):
                     from sqlalchemy import select
                     from models.clinic import Clinic
                     res = await db.execute(select(Clinic.id).where(Clinic.firebase_clinic_id == clinic_id))
-                    clinic_pg_id = res.scalar_one_or_none() or 1
+                    clinic_pg_id = res.scalar_one_or_none()
+                    if clinic_pg_id is None:
+                        # clinics.id is a UUID FK — never substitute a placeholder
+                        # integer; skip the relational mirror explicitly.
+                        raise LookupError(
+                            f"clinic '{clinic_id}' is not registered in the relational store"
+                        )
 
+                    # Field names must match the retention_outreach schema
+                    # (models/patient.py / alembic 0001) — unknown kwargs raise
+                    # and the outreach record would never be persisted.
                     outreach_pg = RetentionOutreach(
                         clinic_id=clinic_pg_id,
-                        patient_phone_masked="XXXX",
-                        outreach_type=outreach_data.get("outreach_type", "followup_review"),
-                        scheduled_date=now_utc.date(),
-                        status="sent",
-                        message_sent=message_text,
+                        patient_phone_masked=cons.get("patient_phone_masked") or "XXXX",
+                        trigger_type=outreach_data.get("outreach_type", "followup_review"),
+                        message_language="te",
+                        message_text=message_text,
                         sent_at=now_utc
                     )
                     db.add(outreach_pg)
                     await db.commit()
+            except LookupError as e:
+                logger.warning(
+                    f"Retention outreach kept in Firestore only — relational mirror skipped: {e}"
+                )
             except Exception as e:
-                logger.warning(f"Could not log retention outreach to Postgres: {e}")
+                logger.error(
+                    f"Could not log retention outreach to Postgres: {e}", exc_info=True
+                )
 
             await self.logger.log_decision(
                 decision_type="retention_outreach_sent",

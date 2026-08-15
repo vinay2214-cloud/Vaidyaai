@@ -46,9 +46,22 @@ export function PatientSummaryModal({
 
   if (!isOpen) return null;
 
+  // Normalize the backend's grounded summary shape into the display model.
+  // The backend returns structured objects (allergen/reaction, description,
+  // drug_name/dosage/frequency) rather than plain strings, so we map them here
+  // to avoid rendering objects as React children.
+  const allergies = (summaryData?.allergies || []).map((a: any) =>
+    typeof a === "string" ? a : a?.allergen || ""
+  ).filter(Boolean);
+  const conditions = (summaryData?.active_conditions || []).map((c: any) =>
+    typeof c === "string" ? c : c?.description || ""
+  ).filter(Boolean);
+  const medications = summaryData?.medication_history || [];
+  const narrative = summaryData?.summary_text || "";
+
   const handleDownload = () => {
     if (!summaryData) return;
-    const content = `# Longitudinal Clinical Patient Summary\n**Patient ID:** ${summaryData.patient_id}\n**Generated:** ${summaryData.generated_at}\n\n## Allergies\n${summaryData.allergies?.join(", ") || "None documented"}\n\n## Chronic Conditions\n${summaryData.chronic_conditions?.join(", ") || "None documented"}\n\n## Active Medications\n${summaryData.current_medications?.map((m: any) => `- ${m.drug_name} (${m.dosage})`).join("\n") || "None documented"}\n\n## Clinical Narrative\n${summaryData.summary_text || "No narrative available."}`;
+    const content = `# Longitudinal Clinical Patient Summary\n**Patient ID:** ${summaryData.patient_id}\n**Generated:** ${summaryData.generated_at}\n\n## Allergies\n${allergies.join(", ") || "None documented"}\n\n## Chronic Conditions\n${conditions.join(", ") || "None documented"}\n\n## Active Medications\n${medications.map((m: any) => `- ${m.drug_name} (${m.dosage})`).join("\n") || "None documented"}\n\n## Clinical Narrative\n${narrative || "No narrative available."}`;
     const blob = new Blob([content], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -111,6 +124,13 @@ export function PatientSummaryModal({
 
           {summaryData && !loading && (
             <>
+              {summaryData.summary_generated === false && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-xs">
+                  No clinician-reviewed consultations are available yet, so a
+                  longitudinal summary cannot be synthesized. Facts are only
+                  included after a clinician reviews and confirms the encounter.
+                </div>
+              )}
               {/* Provenance & Generation Meta */}
               <div className="flex items-center justify-between p-3 bg-slate-800/40 border border-slate-700/50 rounded-xl text-xs">
                 <div className="flex items-center gap-2 text-slate-300">
@@ -132,9 +152,9 @@ export function PatientSummaryModal({
                   <h4 className="text-xs font-bold uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" /> Documented Allergies
                   </h4>
-                  {summaryData.allergies && summaryData.allergies.length > 0 ? (
+                  {allergies.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
-                      {summaryData.allergies.map((a: string, i: number) => (
+                      {allergies.map((a: string, i: number) => (
                         <span key={i} className="px-2 py-0.5 bg-rose-500/10 border border-rose-500/30 text-rose-200 rounded text-xs font-semibold">
                           {a}
                         </span>
@@ -150,9 +170,9 @@ export function PatientSummaryModal({
                   <h4 className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
                     <Stethoscope className="w-3.5 h-3.5" /> Chronic Medical Conditions
                   </h4>
-                  {summaryData.chronic_conditions && summaryData.chronic_conditions.length > 0 ? (
+                  {conditions.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
-                      {summaryData.chronic_conditions.map((c: string, i: number) => (
+                      {conditions.map((c: string, i: number) => (
                         <span key={i} className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded text-xs font-semibold">
                           {c}
                         </span>
@@ -169,9 +189,9 @@ export function PatientSummaryModal({
                 <h4 className="text-xs font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
                   <Pill className="w-3.5 h-3.5" /> Current / Recent Medications
                 </h4>
-                {summaryData.current_medications && summaryData.current_medications.length > 0 ? (
+                {medications.length > 0 ? (
                   <div className="space-y-1.5">
-                    {summaryData.current_medications.map((m: any, idx: number) => (
+                    {medications.map((m: any, idx: number) => (
                       <div key={idx} className="flex items-center justify-between p-2 bg-slate-800/60 rounded-lg text-xs">
                         <span className="font-semibold text-white">{m.drug_name}</span>
                         <span className="text-slate-400 font-mono">{m.dosage || "--"} • {m.frequency || "--"}</span>
@@ -189,7 +209,7 @@ export function PatientSummaryModal({
                   <Sparkles className="w-3.5 h-3.5" /> Synthesized Clinical Overview
                 </h4>
                 <p className="text-xs leading-relaxed text-slate-300 whitespace-pre-line">
-                  {summaryData.summary_text || "No reviewed encounters available to synthesize summary."}
+                  {narrative || "No reviewed encounters available to synthesize summary."}
                 </p>
               </div>
             </>

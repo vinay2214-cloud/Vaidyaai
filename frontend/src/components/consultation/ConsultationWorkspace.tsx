@@ -139,6 +139,7 @@ export function ConsultationWorkspace({
 
   const [customCondition, setCustomCondition] = useState("");
   const [savingAssessment, setSavingAssessment] = useState(false);
+  const [medSaveError, setMedSaveError] = useState<string | null>(null);
 
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -360,7 +361,12 @@ export function ConsultationWorkspace({
     if (!consultationId) return;
     try {
       setSavingAssessment(true);
+      setMedSaveError(null);
       const clinicId = useClinicStore.getState().clinicId;
+      if (!clinicId) {
+        setMedSaveError("Clinic context is unavailable. Please refresh and try again.");
+        return;
+      }
       await api.post(`/consultations/${consultationId}/clinical-history`, {
         clinic_id: clinicId,
         current_medications: newList,
@@ -371,11 +377,25 @@ export function ConsultationWorkspace({
         ...consultation,
         patient_current_medications: newList as any
       } as any);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Medications save error:", e);
+      // Surface a meaningful, non-PHI error to the clinician instead of failing
+      // silently. The medication list is NOT updated on failure so the clinician
+      // can retry without losing their input.
+      const detail = e?.response?.data?.detail;
+      setMedSaveError(
+        typeof detail === "string"
+          ? detail
+          : "Could not save medication history. Please check your connection and try again."
+      );
     } finally {
       setSavingAssessment(false);
     }
+  };
+
+  const openMedModal = () => {
+    setMedSaveError(null);
+    setShowMedModal(true);
   };
 
   const estimate = billingEstimate;
@@ -399,7 +419,7 @@ export function ConsultationWorkspace({
     { label: "Chief Complaint", status: isChiefComplaintReviewed, detail: "Documented at Check-in" },
     { label: "Allergy Review / NKDA", status: isAllergyReviewed, detail: isAllergyReviewed ? (allergiesList.includes("No Known Drug Allergies (NKDA)") ? "NKDA Confirmed" : `${allergiesList.length} Allergy Documented`) : "Action Required", onAction: () => setShowAllergyModal(true) },
     { label: "Chronic Conditions", status: isChronicReviewed, detail: isChronicReviewed ? (chronicList.includes("No Chronic Medical History") ? "None Confirmed" : `${chronicList.length} Condition(s)`) : "Action Required", onAction: () => setShowChronicModal(true) },
-    { label: "Current Medications", status: isMedicationReviewed, detail: isMedicationReviewed ? `${medicationList.length} Meds Documented` : "Review Pending", onAction: () => setShowMedModal(true) },
+    { label: "Current Medications", status: isMedicationReviewed, detail: isMedicationReviewed ? `${medicationList.length} Meds Documented` : "Review Pending", onAction: openMedModal },
     { label: "Structured Vitals", status: isVitalsRecorded, detail: isVitalsRecorded ? (vitalsSavedAt ? `Saved ${vitalsSavedAt}` : "Recorded") : "Optional / Pending" },
     { label: "Assessment & ICD-10", status: isAssessmentDocumented, detail: isAssessmentDocumented ? `${consultation.diagnoses?.length || 1} Diagnoses` : "Pending Scribe" },
     { label: "Rx Safety Audit", status: isRxSafetyCompleted, detail: isRxSafetyCompleted ? "Safety Verified" : "Pending Rx" },
@@ -664,7 +684,7 @@ export function ConsultationWorkspace({
                     </span>
                   </div>
                   <button
-                    onClick={() => setShowMedModal(true)}
+                    onClick={openMedModal}
                     className="w-full py-1.5 px-3 bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-200 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5"
                   >
                     <Pill className="w-3.5 h-3.5" /> Review Current Medications
@@ -678,7 +698,7 @@ export function ConsultationWorkspace({
                       {medicationList.some(m => m.drug_name === "No Active Current Medications") ? "✓ No Active Meds" : "✓ Meds Documented"}
                     </span>
                     <button
-                      onClick={() => setShowMedModal(true)}
+                      onClick={openMedModal}
                       className="text-[11px] text-teal-400 hover:text-teal-300 font-medium"
                     >
                       Edit
@@ -995,7 +1015,7 @@ export function ConsultationWorkspace({
                     const el = document.getElementById("structured-vitals-card");
                     if (el) el.scrollIntoView({ behavior: "smooth" });
                   }}
-                  onRequestReviewMeds={() => setShowMedModal(true)}
+                  onRequestReviewMeds={openMedModal}
                   safetyEvaluation={hasSafetyEvaluation}
                 />
               </div>
@@ -1566,6 +1586,14 @@ export function ConsultationWorkspace({
             >
               <Check className="w-3.5 h-3.5" /> Confirm No Active Home Medications
             </button>
+
+            {/* Save error feedback (non-PHI) */}
+            {medSaveError && (
+              <div className="flex items-start gap-2 p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300 text-xs">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{medSaveError}</span>
+              </div>
+            )}
 
             {/* Modal Actions */}
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/40">

@@ -118,12 +118,28 @@ export default function LongitudinalPatientRecordPage() {
   };
 
   const rawConsultations = Array.isArray(timelineData) ? timelineData : (timelineData as any)?.consultations || [];
-  const latestCons = rawConsultations.length > 0 ? rawConsultations[rawConsultations.length - 1] : null;
+  // Pick the newest encounter by date rather than by array position: the
+  // timeline is assembled per-appointment, so positional access can surface the
+  // OLDEST consultation as if it were the most recent one.
+  const latestCons = rawConsultations.length > 0
+    ? rawConsultations.reduce((newest: any, c: any) => {
+        const t = c?.created_at ? new Date(c.created_at).getTime() : NaN;
+        const best = newest?.created_at ? new Date(newest.created_at).getTime() : NaN;
+        if (Number.isNaN(t)) return newest;
+        if (Number.isNaN(best)) return c;
+        return t > best ? c : newest;
+      }, rawConsultations[0])
+    : null;
   const rawAppts = (timelineData as any)?.appointments || [];
   const rawReferrals = (timelineData as any)?.referrals || [];
 
   const overview: LongitudinalOverview = {
-    last_visit: patientData?.updated_at ? new Date(patientData.updated_at).toLocaleDateString("en-IN") : "Recent Consultation",
+    // Prefer the real latest encounter date; never imply a visit we cannot date.
+    last_visit: latestCons?.created_at
+      ? new Date(latestCons.created_at).toLocaleDateString("en-IN")
+      : patientData?.updated_at
+        ? new Date(patientData.updated_at).toLocaleDateString("en-IN")
+        : patientData?.last_visit_str || "Not recorded",
     primary_physician: "Attending Medical Officer",
     visit_count: (timelineData as any)?.total_visits || rawAppts.length || patientData?.visit_count || 1,
     active_problems: Array.isArray(patientData?.chronic_conditions) && patientData.chronic_conditions.length > 0
@@ -132,7 +148,8 @@ export default function LongitudinalPatientRecordPage() {
     current_medications_count: latestCons?.medications?.length || 0,
     upcoming_followup: latestCons?.followup_days ? `Follow-up in ${latestCons.followup_days} days` : "Routine review",
     active_referrals_count: rawReferrals.length,
-    outstanding_bills_rupees: 0
+    // Not computed on this screen — the Billing tab is the source of truth.
+    outstanding_bills_rupees: null
   };
 
   const aiSummary: AISummaryContent = {

@@ -1,6 +1,9 @@
 import os
 from typing import List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class Settings(BaseSettings):
@@ -73,6 +76,25 @@ class Settings(BaseSettings):
     # CORS Config
     CORS_ORIGINS_RAW: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _anchor_relative_sqlite_path(cls, value: str) -> str:
+        """Anchor relative SQLite files to the backend directory.
+
+        A cwd-relative URL such as ``sqlite+aiosqlite:///./test.db`` resolves to
+        a different file depending on where the process was started, so the API
+        server, the seed script and the tests would each read a separate
+        database. Non-SQLite URLs, in-memory databases and absolute paths are
+        returned unchanged.
+        """
+        url = value.strip()
+        prefix, sep, path = url.partition(":///")
+        if not sep or not prefix.lower().startswith("sqlite"):
+            return value
+        if not path or path.startswith((":", "/")):
+            return value
+        return f"{prefix}:///{os.path.join(BACKEND_DIR, path.lstrip('./'))}"
+
     @property
     def cors_origins(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS_RAW.split(",") if origin.strip()]
@@ -128,8 +150,9 @@ class Settings(BaseSettings):
             )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=os.path.join(BACKEND_DIR, ".env"),
         env_file_encoding="utf-8",
+        validate_default=True,
         extra="ignore"
     )
 

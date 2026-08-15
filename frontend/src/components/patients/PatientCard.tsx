@@ -91,7 +91,7 @@ export const PatientCard: React.FC<PatientCardProps> = ({
 
         <div className="text-right text-xs text-slate-400 shrink-0">
           <span className="flex items-center justify-end gap-1.5 text-slate-300 font-medium">
-            <Calendar className="w-3.5 h-3.5 text-teal-400" /> Last Visit: {patient.last_visit_str || "Today"}
+            <Calendar className="w-3.5 h-3.5 text-teal-400" /> Last Visit: {patient.last_visit_str || "Not recorded"}
           </span>
           <span className="text-[11px] text-slate-400 capitalize block mt-1">
             {patient.visit_type || "General Consultation"}

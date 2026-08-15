@@ -41,3 +41,24 @@ def test_patient_register_request_list_defaults_are_isolated():
     a.chronic_conditions.append("Hypertension")
     assert b.chronic_conditions == []
     assert a.chronic_conditions == ["Hypertension"]
+
+
+def test_timeline_sort_key_orders_mixed_timestamp_formats():
+    """Regression: the patient timeline must be deterministically newest-first.
+
+    Consultations are fetched per appointment and concatenated, so without an
+    explicit sort the OLDEST encounter could land last in the list and be
+    rendered as "Last Visit".
+    """
+    from datetime import datetime, timezone
+    from api.patients import _timeline_sort_key
+
+    docs = [
+        {"consultation_id": "old", "created_at": datetime(2026, 2, 16, tzinfo=timezone.utc)},
+        {"consultation_id": "new", "created_at": "2026-05-17T09:00:00Z"},
+        {"consultation_id": "naive", "created_at": datetime(2026, 3, 1)},
+        {"consultation_id": "undated"},
+    ]
+    ordered = [d["consultation_id"] for d in sorted(docs, key=_timeline_sort_key, reverse=True)]
+
+    assert ordered == ["new", "naive", "old", "undated"]

@@ -13,7 +13,8 @@ export interface LongitudinalOverview {
   current_medications_count: number;
   upcoming_followup: string;
   active_referrals_count: number;
-  outstanding_bills_rupees: number;
+  /** null when no balance has been computed — never claim "Fully Paid". */
+  outstanding_bills_rupees: number | null;
 }
 
 interface PatientOverviewCardProps {
@@ -26,7 +27,23 @@ export const PatientOverviewCard: React.FC<PatientOverviewCardProps> = ({ overvi
     { icon: Calendar, label: "Last Visit", value: overview.last_visit, sub: overview.primary_physician, color: "text-foreground" as const },
     { icon: Calendar, label: "Follow-Up", value: overview.upcoming_followup, sub: "RetentionRadar active", color: "text-orange-400" as const },
     { icon: Pill, label: "Current Rx & Referrals", value: `${overview.current_medications_count} Active • ${overview.active_referrals_count} Ref`, sub: "PrescriptionSafe Verified", color: "text-green-400" as const },
-    { icon: CreditCard, label: "Balance", value: overview.outstanding_bills_rupees === 0 ? "Fully Paid (₹0)" : `₹${overview.outstanding_bills_rupees} Pending`, sub: "BillingPulse UPI", color: overview.outstanding_bills_rupees === 0 ? "text-green-400" as const : "text-red-400" as const },
+    {
+      icon: CreditCard,
+      label: "Balance",
+      value:
+        overview.outstanding_bills_rupees === null
+          ? "See Billing"
+          : overview.outstanding_bills_rupees === 0
+            ? "Fully Paid (₹0)"
+            : `₹${overview.outstanding_bills_rupees} Pending`,
+      sub: "BillingPulse UPI",
+      color:
+        overview.outstanding_bills_rupees === null
+          ? ("text-foreground-muted" as const)
+          : overview.outstanding_bills_rupees === 0
+            ? ("text-green-400" as const)
+            : ("text-red-400" as const),
+    },
   ];
 
   return (

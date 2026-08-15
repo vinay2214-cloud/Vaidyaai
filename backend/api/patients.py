@@ -23,6 +23,20 @@ SEARCH_SCAN_LIMIT = 500
 TIMELINE_MAX_RECORDS = 200
 
 
+def _timeline_sort_key(doc: Dict[str, Any]) -> datetime:
+    """Sortable creation timestamp; undated records sort oldest."""
+    value = doc.get("created_at")
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
 class PatientCreateRequest(BaseModel):
     clinic_id: str
     phone: str
@@ -143,6 +157,8 @@ async def get_patient_clinical_timeline(
         "appointments",
         [("clinic_id", "==", clinic_id), ("patient_id", "==", id)],
         limit=TIMELINE_MAX_RECORDS,
+        order_by="created_at",
+        direction="DESCENDING",
     )
 
     appt_ids = [a["id"] for a in appointments if a.get("id")]
@@ -160,6 +176,10 @@ async def get_patient_clinical_timeline(
         ])
         for group in cons_groups:
             consultations.extend(group)
+        # asyncio.gather preserves appointment order, but the timeline must be
+        # deterministically newest-first so clients never mistake the oldest
+        # encounter for the latest one.
+        consultations.sort(key=_timeline_sort_key, reverse=True)
 
     # Referrals are linked to a patient only via their consultation_id; filtering by
     # clinic_id alone would leak every clinic patient's referrals into this timeline.

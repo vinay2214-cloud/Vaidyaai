@@ -111,7 +111,8 @@ export default function AnalyticsManagerPage() {
   const displayAgentMetrics: AgentMetric[] = liveAgentHealth.map(a => ({
     agent: a.name,
     decisions: a.tasks_today,
-    avgLatency: a.avg_latency_ms ? `${(a.avg_latency_ms / 1000).toFixed(1)}s` : "0s",
+    // Unrecorded latency must read as unknown, not as an implausible 0s.
+    avgLatency: a.avg_latency_ms ? `${(a.avg_latency_ms / 1000).toFixed(1)}s` : "—",
     successRate: a.success_rate_pct,
     status: a.status === "running" ? "running" : a.failures_today > 0 ? "failed" : "completed"
   }));

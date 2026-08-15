@@ -40,7 +40,7 @@ export default function PatientIntelligencePage() {
         age: p.age ?? undefined,
         gender: p.gender ?? undefined,
         city: p.address || p.city || undefined,
-        last_visit_str: p.last_visit_str || "Today",
+        last_visit_str: p.last_visit_str || "Not recorded",
         chief_complaint: p.chief_complaint || p.complaint_summary || undefined,
         visit_type: p.visit_type || p.consultation_type || "General Consultation",
         status_badge: p.status_badge || (p.visit_count > 1 ? "FOLLOW-UP" : "TODAY"),

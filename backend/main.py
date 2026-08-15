@@ -17,6 +17,7 @@ from api.analytics import router as analytics_router
 from api.internal import router as internal_router
 from api.agent_health import router as agent_health_router
 from api.fhir import router as fhir_router
+from api.stream import router as stream_router
 
 logger = logging.getLogger("vaidyaai.main")
 
@@ -172,6 +173,7 @@ app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
 app.include_router(internal_router, prefix="/internal", tags=["internal"])
 app.include_router(agent_health_router, prefix="/api/v1", tags=["agents"])
 app.include_router(fhir_router, prefix="/api/v1", tags=["fhir"])
+app.include_router(stream_router, prefix="/api/v1", tags=["stream"])
 
 
 @app.get("/livez", tags=["health"])

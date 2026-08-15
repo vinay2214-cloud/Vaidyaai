@@ -51,9 +51,10 @@ async def get_analytics_dashboard(
     completed_consults = len([c for c in consultations if c.get("status") == "approved"])
     no_shows = len([a for a in appointments if a.get("status") == "no_show"])
     
-    # Calculate average AI response latency
-    latencies = [l.get("latency_ms") for l in agent_logs if l.get("latency_ms") is not None]
-    avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 0
+    # Canonical telemetry aggregation (same source as /agents/health).
+    from services.telemetry import aggregate_telemetry
+    telemetry = aggregate_telemetry(agent_logs)
+    avg_latency = telemetry["average_latency_ms"]
 
     if total_appts > 0:
         completion_rate = completed_consults / total_appts

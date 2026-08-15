@@ -140,6 +140,37 @@ class EventBus:
         self._processed_events: Set[str] = set()
         self._processed_events_max = 10_000  # Rolling cap to prevent memory leak
         self._agent_states: Dict[str, AgentState] = {}
+        # Real-time broadcast subscribers (SSE/WebSocket bridges). Each is an
+        # asyncio.Queue that receives emitted events for live streaming.
+        self._stream_subscribers: List[asyncio.Queue] = []
+
+    def subscribe_stream(self, queue: asyncio.Queue) -> None:
+        """Register a live-stream queue to receive every emitted event."""
+        self._stream_subscribers.append(queue)
+
+    def unsubscribe_stream(self, queue: asyncio.Queue) -> None:
+        try:
+            self._stream_subscribers.remove(queue)
+        except ValueError:
+            pass
+
+    async def _broadcast(self, event: Dict[str, Any]) -> None:
+        """Push an emitted event to all live-stream subscribers (best effort)."""
+        if not self._stream_subscribers:
+            return
+        for queue in list(self._stream_subscribers):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                # Drop oldest to keep the stream fresh for slow consumers.
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    pass
 
     def subscribe(
         self,
@@ -198,6 +229,9 @@ class EventBus:
 
         # Write audit entry for the event emission
         await self._write_audit(event, handler_results)
+
+        # Broadcast to live-stream subscribers (SSE/WebSocket bridges).
+        await self._broadcast(event)
 
         return {
             "event_id": event_id,

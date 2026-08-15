@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/firestore";
 import { getFirestoreDb } from "../lib/firebase";
 import { useClinicStore } from "../store/clinicStore";
+import { BACKEND_URL } from "@/lib/constants";
 
 export interface AgentLog {
   id: string;
@@ -20,23 +21,99 @@ export interface AgentLog {
   consultation_id?: string;
 }
 
+export type StreamStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
+
+const MAX_LOGS = 50;
+
 export function useAgentLogs(filterAgent?: string | null) {
   const clinicId = useClinicStore((state) => state.clinicId);
   const [logs, setLogs] = useState<AgentLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>("connecting");
+  const seenIds = useRef<Set<string>>(new Set());
 
+  // Real-time transport: SSE stream from the backend event bus, with Firestore
+  // onSnapshot as a fallback for environments without a live stream.
   useEffect(() => {
     if (!clinicId) {
       setLoading(false);
+      setStreamStatus("disconnected");
       return;
     }
 
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const connect = () => {
+      if (cancelled) return;
+      setStreamStatus("connecting");
+      try {
+        es = new EventSource(`${BACKEND_URL}/api/v1/stream/events`);
+      } catch (e) {
+        setStreamStatus("disconnected");
+        return;
+      }
+
+      es.onopen = () => {
+        if (!cancelled) setStreamStatus("connected");
+      };
+
+      es.addEventListener("connected", () => {
+        if (!cancelled) setStreamStatus("connected");
+      });
+
+      es.addEventListener("event", (evt) => {
+        if (cancelled) return;
+        try {
+          const data = JSON.parse((evt as MessageEvent).data);
+          const eventId = data.event_id || `evt_${Date.now()}_${Math.random()}`;
+          if (seenIds.current.has(eventId)) return; // dedup
+          seenIds.current.add(eventId);
+          const log: AgentLog = {
+            id: eventId,
+            agent_name: data.event_type || "event",
+            decision_type: `event:${data.event_type || "unknown"}`,
+            decision_made: data.payload?.decision_made || `Emitted ${data.event_type || "event"}`,
+            clinic_id: data.clinic_id || clinicId,
+            patient_id: data.patient_id,
+            consultation_id: data.consultation_id,
+            created_at: data.created_at ? new Date(data.created_at) : new Date(),
+            success: true,
+          };
+          if (!filterAgent || log.agent_name === filterAgent) {
+            setLogs((prev) => [log, ...prev].slice(0, MAX_LOGS));
+          }
+        } catch (e) {
+          // ignore malformed events
+        }
+      });
+
+      es.onerror = () => {
+        if (cancelled) return;
+        setStreamStatus("reconnecting");
+        es?.close();
+        es = null;
+        // SSE spec auto-reconnects, but we schedule a manual retry as well.
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+    };
+  }, [clinicId, filterAgent]);
+
+  // Firestore fallback: seed the list with persisted logs when the stream is
+  // not available (e.g. dev in-memory Firestore).
+  useEffect(() => {
+    if (!clinicId) return;
     const db = getFirestoreDb();
-    if (!db) {
-      console.warn("[useAgentLogs] Firestore not initialized.");
-      setLoading(false);
-      return;
-    }
+    if (!db) return;
 
     let q = query(
       collection(db, "agent_logs"),
@@ -68,7 +145,16 @@ export function useAgentLogs(filterAgent?: string | null) {
           });
         }
       });
-      setLogs(docs);
+      setLogs((prev) => {
+        const merged = [...docs, ...prev];
+        const seen = new Set<string>();
+        return merged.filter((l) => {
+          const key = l.id;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).slice(0, MAX_LOGS);
+      });
       setLoading(false);
     }, (error) => {
       console.warn("Agent logs onSnapshot error:", error);
@@ -78,5 +164,5 @@ export function useAgentLogs(filterAgent?: string | null) {
     return () => unsubscribe();
   }, [clinicId, filterAgent]);
 
-  return { logs, loading };
+  return { logs, loading, streamStatus };
 }

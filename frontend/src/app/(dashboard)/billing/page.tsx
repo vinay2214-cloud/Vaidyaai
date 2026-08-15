@@ -34,13 +34,13 @@ function formatCurrency(n: number) {
   return `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Canonical invoice lifecycle, aligned with the backend statuses
+// (generated -> sent -> pending -> paid, with waived as a terminal state).
 const LIFECYCLE_STAGES = [
   "Generated",
   "Sent",
   "Pending",
   "Paid",
-  "Reconciled",
-  "Closed",
 ];
 
 function PaymentModal({
@@ -93,12 +93,14 @@ function PaymentModal({
     }
   };
 
-  // Determine current lifecycle stage index
+  // Determine current lifecycle stage index (aligned with backend statuses)
   const currentStageIndex =
-    invoice.status === "paid"
-      ? 4 // Reconciled
+    invoice.status === "paid" || invoice.status === "waived"
+      ? 3 // Paid
       : invoice.status === "sent"
       ? 1 // Sent
+      : invoice.status === "generated"
+      ? 0 // Generated
       : 2; // Pending
 
   return (
@@ -369,7 +371,7 @@ export default function BillingWorkflowPage() {
       return rawInvoices.filter((i: any) => i.status === "pending" || i.status === "sent" || i.status === "generated");
     }
     if (filter === "paid") {
-      return rawInvoices.filter((i: any) => i.status === "paid" || i.status === "reconciled" || i.status === "closed");
+      return rawInvoices.filter((i: any) => i.status === "paid" || i.status === "waived");
     }
     return rawInvoices;
   }, [rawInvoices, filter]);
@@ -545,7 +547,7 @@ export default function BillingWorkflowPage() {
             {filteredInvoices.length > 0 ? (
               <div className="space-y-3">
                 {filteredInvoices.map((inv: any) => {
-                  const isPaid = inv.status === "paid" || inv.status === "reconciled" || inv.status === "closed";
+                  const isPaid = inv.status === "paid" || inv.status === "waived";
                   return (
                     <div
                       key={inv.invoice_id}

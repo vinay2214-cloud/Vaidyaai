@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
+import { usePatientStore } from "@/store/patientStore";
 import { PatientBanner, LongitudinalPatientHeader } from "@/components/patient-detail/PatientBanner";
 import { PatientOverviewCard, LongitudinalOverview } from "@/components/patient-detail/PatientOverviewCard";
 import { AISummaryCard, AISummaryContent } from "@/components/patient-detail/AISummaryCard";
@@ -30,6 +31,7 @@ export default function LongitudinalPatientRecordPage() {
   const params = useParams();
   const patientId = (params?.id as string) || "pat_demo";
   const clinicId = useClinicStore((state) => state.clinicId);
+  const setCurrentPatient = usePatientStore((state) => state.setCurrentPatient);
   const { logs } = useAgentLogs();
 
   const [loading, setLoading] = useState(true);
@@ -53,8 +55,17 @@ export default function LongitudinalPatientRecordPage() {
         ]);
         if (patRes.status === "fulfilled" && patRes.value.data) {
           setPatientData(patRes.value.data);
+          setCurrentPatient({
+            patient_id: patRes.value.data.patient_id || patientId,
+            name: patRes.value.data.name,
+            allergies: patRes.value.data.allergies || [],
+            chronic_conditions: patRes.value.data.chronic_conditions || [],
+            risk_level: patRes.value.data.risk_level,
+          });
         }
-        if (tlRes.status === "fulfilled" && Array.isArray(tlRes.value.data)) {
+        if (tlRes.status === "fulfilled" && tlRes.value.data) {
+          // The timeline endpoint returns an object {appointments, consultations,
+          // referrals, total_visits}, not a bare array.
           setTimelineData(tlRes.value.data);
         }
       } catch (e) {
@@ -64,7 +75,7 @@ export default function LongitudinalPatientRecordPage() {
       }
     }
     loadData();
-  }, [patientId, clinicId]);
+  }, [patientId, clinicId, setCurrentPatient]);
 
   // Enriched patient data from backend API with honest clinical states (no fabricated data)
   const patientHeader: LongitudinalPatientHeader = {
@@ -198,7 +209,26 @@ export default function LongitudinalPatientRecordPage() {
     }
   ] : [];
 
-  const timelineItems: LongitudinalTimelineItem[] = rawConsultations.map((c: any, idx: number) => ({
+  // Timeline is built from BOTH appointments and consultations so a patient with
+  // visits but no completed consultation still shows a longitudinal record.
+  const appointmentItems: LongitudinalTimelineItem[] = rawAppts.map((a: any, idx: number) => ({
+    id: a.appointment_id || a.id || `tl_appt_${idx}`,
+    type: "consultation" as const,
+    date: a.slot_date ? new Date(a.slot_date).toLocaleDateString() : "Recent",
+    title: a.reason || "Clinic Visit",
+    summary: a.status === "completed" ? "Visit completed." : a.status === "no_show" ? "Patient did not attend." : "Visit scheduled.",
+    clinician: "Attending Clinician",
+    agents_involved: ["AppointmentFlow"],
+    status_variant: a.status === "completed" ? ("completed" as const) : a.status === "no_show" ? ("warning" as const) : ("info" as const),
+    status_label: a.status === "completed" ? "Completed" : a.status === "no_show" ? "No-show" : "Scheduled",
+    details: {
+      vitals: "Not recorded",
+      diagnoses: "None recorded",
+      fee_paid: "Standard Consultation"
+    }
+  }));
+
+  const consultationItems: LongitudinalTimelineItem[] = rawConsultations.map((c: any, idx: number) => ({
     id: c.consultation_id || `tl_${idx}`,
     type: "consultation" as const,
     date: c.created_at ? new Date(c.created_at).toLocaleDateString() : "Recent",
@@ -214,6 +244,9 @@ export default function LongitudinalPatientRecordPage() {
       fee_paid: "Standard Consultation"
     }
   }));
+
+  const timelineItems: LongitudinalTimelineItem[] = [...appointmentItems, ...consultationItems]
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
   const auditLogs = logs
     .filter((log) => !patientId || log.patient_id === patientId || log.consultation_id?.includes(patientId))
@@ -286,7 +319,11 @@ export default function LongitudinalPatientRecordPage() {
           {/* SECTION 11: Document Center */}
           <DocumentCard
             documents={documents}
-            onDownload={(doc) => alert(`Downloading ${doc.name}...`)}
+            onDownload={(doc) => {
+              const consId = latestCons?.consultation_id;
+              if (!consId) return;
+              window.open(`/api/v1/consultations/${consId}/pdf?clinic_id=${clinicId}`, "_blank");
+            }}
           />
 
           {/* SECTION 4: Longitudinal Timeline */}

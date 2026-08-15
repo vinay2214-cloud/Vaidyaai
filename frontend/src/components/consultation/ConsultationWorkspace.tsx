@@ -59,29 +59,19 @@ function formatCurrency(n: number) {
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
-function computeEstimate(
-  consultation: ConsultationData,
-  clinicFees?: { new_patient_paise?: number; followup_paise?: number; procedure_paise?: number } | null
-) {
-  const type = consultation.consultation_type || "new";
-  let basePaise: number;
-  if (type === "followup") {
-    basePaise = clinicFees?.followup_paise ?? 15000;
-  } else if (type === "procedure") {
-    basePaise = clinicFees?.procedure_paise ?? 50000;
-  } else {
-    basePaise = clinicFees?.new_patient_paise ?? 30000;
-  }
-  const base = basePaise / 100;
-  const perMed = 25;
-  const perInvestigation = 150;
-  const medCount = consultation.medications?.length || 0;
-  const invCount = consultation.investigations?.length || 0;
-  const subtotal = base + medCount * perMed + invCount * perInvestigation;
-  const tax = Math.round(subtotal * 0.18);
-  const total = subtotal + tax;
-  return { base, medCount, invCount, subtotal, tax, total };
+interface BillingEstimate {
+  base: number;
+  medCount: number;
+  invCount: number;
+  medAmount: number;
+  invAmount: number;
+  subtotal: number;
+  tax: number;
+  total: number;
+  loading: boolean;
 }
+
+const EMPTY_ESTIMATE: BillingEstimate = { base: 0, medCount: 0, invCount: 0, medAmount: 0, invAmount: 0, subtotal: 0, tax: 0, total: 0, loading: true };
 
 const COMMON_ALLERGIES = [
   "Penicillin",
@@ -153,6 +143,7 @@ export function ConsultationWorkspace({
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [clinicFees, setClinicFees] = useState<{ new_patient_paise?: number; followup_paise?: number; procedure_paise?: number } | null>(null);
+  const [billingEstimate, setBillingEstimate] = useState<BillingEstimate>(EMPTY_ESTIMATE);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,6 +159,41 @@ export function ConsultationWorkspace({
     loadFees();
     return () => { cancelled = true; };
   }, [clinicId]);
+
+  // Canonical billing estimate from the backend pricing service so the estimate
+  // always matches the final invoice.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadEstimate() {
+      if (!clinicId) return;
+      try {
+        setBillingEstimate((prev) => ({ ...prev, loading: true }));
+        const res = await api.post("/billing/estimate", {
+          clinic_id: clinicId,
+          consultation_type: consultation.consultation_type || "new",
+          medication_count: consultation.medications?.length || 0,
+          investigation_count: consultation.investigations?.length || 0,
+        });
+        if (cancelled) return;
+        const d = res.data;
+        setBillingEstimate({
+          base: d.base_fee_rupees ?? 0,
+          medCount: d.medication_count ?? 0,
+          invCount: d.investigation_count ?? 0,
+          medAmount: d.medication_rupees ?? 0,
+          invAmount: d.investigation_rupees ?? 0,
+          subtotal: (d.base_fee_paise + d.adjustments_paise) / 100,
+          tax: (d.tax_paise ?? 0) / 100,
+          total: d.total_rupees ?? 0,
+          loading: false,
+        });
+      } catch (e) {
+        if (!cancelled) setBillingEstimate({ ...EMPTY_ESTIMATE, loading: false });
+      }
+    }
+    loadEstimate();
+    return () => { cancelled = true; };
+  }, [clinicId, consultation.consultation_type, consultation.medications, consultation.investigations]);
 
   useEffect(() => {
     let cancelled = false;
@@ -344,7 +370,7 @@ export function ConsultationWorkspace({
     }
   };
 
-  const estimate = computeEstimate(consultation, clinicFees);
+  const estimate = billingEstimate;
   const isReturningPatient = Boolean((consultation.visit_count ?? 0) > 1 || (consultation.total_visits ?? 0) > 1);
   const hasSafetyEvaluation = consultation.safety_evaluation;
 
@@ -817,26 +843,32 @@ export function ConsultationWorkspace({
           <Panel padding="md">
             <SectionHeader icon={Coins} title="Billing Estimate" subtitle={clinicFees ? "From configured clinic fees" : "Indicative estimate (configure fees in settings)"} />
             <div className="mt-4 space-y-2.5 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-foreground-subtle">Consultation fee</span>
-                <span className="text-foreground tnum">{formatCurrency(estimate.base)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-foreground-subtle">Medications ({estimate.medCount})</span>
-                <span className="text-foreground tnum">{formatCurrency(estimate.medCount * 25)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-foreground-subtle">Investigations ({estimate.invCount})</span>
-                <span className="text-foreground tnum">{formatCurrency(estimate.invCount * 150)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-foreground-subtle">GST (18%)</span>
-                <span className="text-foreground tnum">{formatCurrency(estimate.tax)}</span>
-              </div>
-              <div className="border-t border-border pt-2.5 flex items-center justify-between text-base font-semibold">
-                <span className="text-foreground">Total</span>
-                <span className="text-teal-400 tnum">{formatCurrency(estimate.total)}</span>
-              </div>
+              {estimate.loading ? (
+                <div className="text-foreground-subtle text-xs font-mono">Calculating estimate…</div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-foreground-subtle">Consultation fee</span>
+                    <span className="text-foreground tnum">{formatCurrency(estimate.base)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-foreground-subtle">Medications ({estimate.medCount})</span>
+                    <span className="text-foreground tnum">{formatCurrency(estimate.medAmount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-foreground-subtle">Investigations ({estimate.invCount})</span>
+                    <span className="text-foreground tnum">{formatCurrency(estimate.invAmount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-foreground-subtle">GST (18%)</span>
+                    <span className="text-foreground tnum">{formatCurrency(estimate.tax)}</span>
+                  </div>
+                  <div className="border-t border-border pt-2.5 flex items-center justify-between text-base font-semibold">
+                    <span className="text-foreground">Total</span>
+                    <span className="text-teal-400 tnum">{formatCurrency(estimate.total)}</span>
+                  </div>
+                </>
+              )}
             </div>
           </Panel>
         </div>

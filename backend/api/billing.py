@@ -12,12 +12,41 @@ from database.postgres import AsyncSessionFactory
 from models.clinic import Clinic
 from models.billing import Invoice, DailyPLSummary
 from agents.billing_pulse import BillingPulseAgent
+from services.pricing import calculate_consultation_fee
+from database.firestore import get_document
 from utils.date_utils import get_today_ist_date_str, parse_ist_date
 
 logger = logging.getLogger("vaidyaai.api.billing")
 router = APIRouter()
 
 billing_agent = BillingPulseAgent()
+
+
+class EstimateRequest(BaseModel):
+    clinic_id: str
+    consultation_type: str = Field(default="new", pattern="^(new|followup|procedure)$")
+    medication_count: int = 0
+    investigation_count: int = 0
+    discount_paise: int = 0
+
+
+@router.post("/billing/estimate", tags=["billing"])
+async def get_billing_estimate(
+    req: EstimateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Canonical consultation fee estimate. Uses the same pricing service as the
+    invoice, so the estimate shown to the patient always matches the final invoice."""
+    verify_clinic_access(req.clinic_id, current_user)
+    clinic_doc = await get_document("clinics", req.clinic_id)
+    fees = clinic_doc.get("consultation_fees", {}) if clinic_doc else {}
+    return calculate_consultation_fee(
+        consultation_type=req.consultation_type,
+        clinic_fees=fees,
+        medication_count=req.medication_count,
+        investigation_count=req.investigation_count,
+        discount_paise=req.discount_paise,
+    )
 
 
 def _utc_day_bounds(day_str: str) -> tuple[datetime, datetime]:

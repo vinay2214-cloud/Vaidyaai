@@ -2,6 +2,7 @@
 
 import React from "react";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { usePatientStore } from "@/store/patientStore";
 import { ActivityFeed, ActivityItem } from "@/components/design-system/ActivityFeed";
 import { Panel, SectionHeader, Badge, AIStatus } from "@/components/design-system";
 import { Bot, ShieldAlert, ClipboardList, CheckCircle2 } from "lucide-react";
@@ -37,6 +38,7 @@ function logToActivity(log: AgentLog, index: number): ActivityItem {
 
 export function RightSidebar() {
   const { logs, loading } = useAgentLogs();
+  const currentPatient = usePatientStore((state) => state.currentPatient);
   const activities = logs.slice(0, 8).map(logToActivity);
 
   const latestLogsByAgent = logs.reduce((acc, log) => {
@@ -55,9 +57,20 @@ export function RightSidebar() {
     sublabel: log.decision_made.substring(0, 25) + (log.decision_made.length > 25 ? "..." : "")
   }));
 
-  const safetyAlerts = logs
-    .filter(l => l.agent_name.toLowerCase().includes("prescription_safe"))
-    .slice(0, 2);
+  // Safety alerts are derived from the authoritative patient allergy record
+  // (single source of truth) plus any recent PrescriptionSafe block events.
+  const patientAllergies = (currentPatient?.allergies || []).filter(Boolean);
+  const allergyAlerts = patientAllergies.map((a) => ({
+    agent_name: "patient_record",
+    success: false,
+    decision_made: `Documented allergy: ${a}`,
+    created_at: null,
+  }));
+  const safetyCheckAlerts = logs
+    .filter(l => l.agent_name.toLowerCase().includes("prescription_safe") && l.success === false)
+    .slice(0, 2)
+    .map((l) => ({ agent_name: l.agent_name, success: false, decision_made: l.decision_made, created_at: l.created_at }));
+  const safetyAlerts = [...allergyAlerts, ...safetyCheckAlerts].slice(0, 3);
 
   const prescriptionCount = logs.filter(l => l.agent_name.toLowerCase().includes("prescription")).length;
   const billingCount = logs.filter(l => l.agent_name.toLowerCase().includes("billing")).length;

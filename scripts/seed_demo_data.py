@@ -44,7 +44,7 @@ async def seed_firestore():
         "whatsapp_phone_id": "phone_id_demo_01",
         "whatsapp_access_token": "token_demo_01",
         "consultation_fees": {
-            "new_paise": 50000,
+            "new_patient_paise": 50000,
             "followup_paise": 30000,
             "procedure_paise": 80000
         },

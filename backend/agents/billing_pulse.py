@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agents.base_agent import BaseAgent
 from services.razorpay_svc import RazorpayService
 from services.whatsapp import WhatsAppService
+from services.pricing import _base_fee_paise
 from database.postgres import AsyncSessionFactory
 from database.firestore import get_document
 from models.clinic import Clinic
@@ -50,7 +51,9 @@ class BillingPulseAgent(BaseAgent):
         consultation_type: str = "new",
         custom_amount_paise: Optional[int] = None,
         fee_breakdown: Optional[Dict[str, int]] = None,
-        patient_id: Optional[str] = None
+        patient_id: Optional[str] = None,
+        consultation_medications: Optional[list] = None,
+        consultation_investigations: Optional[list] = None
     ) -> Dict[str, Any]:
         """
         Triggered when doctor approves SOAP note.
@@ -60,21 +63,15 @@ class BillingPulseAgent(BaseAgent):
         normalized_phone = normalize_phone(patient_phone)
         masked_phone = mask_phone(normalized_phone)
 
-        # 1. Determine consultation fee
-        amount_paise = custom_amount_paise
+        # 1. Determine consultation fee via the canonical pricing service so the
+        #    invoice always matches the estimate shown to the patient.
         clinic_doc = await get_document("clinics", clinic_id)
-        if amount_paise is None:
-            fees = clinic_doc.get("consultation_fees", {}) if clinic_doc else {}
-            if consultation_type == "followup":
-                amount_paise = fees.get("followup_paise", 15000)
-            elif consultation_type == "procedure":
-                amount_paise = fees.get("procedure_paise", 50000)
-            else:
-                amount_paise = fees.get("new_patient_paise", 30000)
-
-        # Calculate breakdown totals if provided (lab, imaging, medicines, procedure, discount, tax)
-        if fee_breakdown:
-            base = fee_breakdown.get("consultation", amount_paise)
+        fees = clinic_doc.get("consultation_fees", {}) if clinic_doc else {}
+        if custom_amount_paise is not None:
+            amount_paise = custom_amount_paise
+        elif fee_breakdown:
+            # Explicit breakdown (lab/imaging/medicine/procedure/tax/discount) wins.
+            base = fee_breakdown.get("consultation", _base_fee_paise(consultation_type, fees))
             lab = fee_breakdown.get("lab", 0)
             imaging = fee_breakdown.get("imaging", 0)
             procedure = fee_breakdown.get("procedure", 0)
@@ -82,6 +79,17 @@ class BillingPulseAgent(BaseAgent):
             tax = fee_breakdown.get("tax", 0)
             discount = fee_breakdown.get("discount", 0)
             amount_paise = max(0, base + lab + imaging + procedure + medicine + tax - discount)
+        else:
+            # Canonical calculation from the consultation's own medications and
+            # investigations (same as the estimate endpoint).
+            from services.pricing import calculate_consultation_fee
+            pricing = calculate_consultation_fee(
+                consultation_type=consultation_type,
+                clinic_fees=fees,
+                medication_count=len(consultation_medications or []),
+                investigation_count=len(consultation_investigations or []),
+            )
+            amount_paise = pricing["total_paise"]
 
         async with AsyncSessionFactory() as db:
             # Look up PostgreSQL clinic record (auto-create if missing)

@@ -29,8 +29,8 @@ class PatientCreateRequest(BaseModel):
     name: str
     age: Optional[int] = None
     gender: Optional[str] = None
-    allergies: Optional[List[str]] = []
-    chronic_conditions: Optional[List[str]] = []
+    allergies: Optional[List[str]] = Field(default_factory=list)
+    chronic_conditions: Optional[List[str]] = Field(default_factory=list)
     blood_group: Optional[str] = None
 
 
@@ -41,6 +41,9 @@ class PatientRegisterRequest(BaseModel):
     age: Optional[int] = None
     gender: Optional[str] = None
     complaint_summary: Optional[str] = "New Patient Consultation"
+    allergies: Optional[List[str]] = Field(default_factory=list)
+    chronic_conditions: Optional[List[str]] = Field(default_factory=list)
+    blood_group: Optional[str] = None
 
 
 
@@ -222,8 +225,9 @@ async def register_patient_endpoint(
             "patient_phone_masked": masked_phone_str,
             "age": req.age,
             "gender": req.gender,
-            "allergies": [],
-            "chronic_conditions": [],
+            "allergies": req.allergies or [],
+            "chronic_conditions": req.chronic_conditions or [],
+            "blood_group": req.blood_group,
             "visit_count": 1,
             "consent_given": True,
             "consent_at": now_utc,

@@ -157,11 +157,13 @@ async def get_agent_health(
             "last_decision": last_decision,
         })
 
-    # Compute platform-wide metrics
+    # Compute platform-wide metrics using the canonical telemetry aggregation
+    # (mean over individual executions, matching the analytics endpoint).
+    from services.telemetry import aggregate_telemetry
+    platform_telemetry = aggregate_telemetry(all_logs)
     total_tasks = sum(a["tasks_today"] for a in agents_health)
     total_failures = sum(a["failures_today"] for a in agents_health)
-    all_latencies = [a["avg_latency_ms"] for a in agents_health if a["avg_latency_ms"] is not None and a["avg_latency_ms"] > 0]
-    platform_avg_latency = round(sum(all_latencies) / len(all_latencies)) if all_latencies else 0
+    platform_avg_latency = platform_telemetry["average_latency_ms"]
     # An agent is "active" only if it has actually executed work today (or is
     # currently running). Merely being registered/Idle does not make it active.
     active_count = sum(1 for a in agents_health if a["tasks_today"] > 0 or a["status"] == "Running")

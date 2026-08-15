@@ -419,7 +419,9 @@ class ClinicalScribeAgent(BaseAgent):
                     clinic_id=clinic_id,
                     patient_phone=patient_phone,
                     consultation_type=consultation_type,
-                    patient_id=patient_id
+                    patient_id=patient_id,
+                    consultation_medications=consultation.get("medications", []),
+                    consultation_investigations=consultation.get("investigations", [])
                 )
             except Exception as e:
                 logger.error(f"Error triggering BillingPulse on SOAP approval: {e}")

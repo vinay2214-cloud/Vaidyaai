@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
 import { useUIStore } from "@/store/uiStore";
@@ -14,6 +15,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { Users } from "lucide-react";
 
 export default function PatientIntelligencePage() {
+  const router = useRouter();
   const clinicId = useClinicStore((state) => state.clinicId);
   const setWalkInModalOpen = useUIStore((state) => state.setWalkInModalOpen);
 
@@ -164,8 +166,8 @@ export default function PatientIntelligencePage() {
             <PatientCard
               key={pat.patient_id}
               patient={pat}
-              onGenerateSummary={(id) => alert(`Generating AI summary for patient ${id}`)}
-              onSendFollowup={(id) => alert(`Triggering Agent 4 follow-up for patient ${id}`)}
+              onGenerateSummary={(id) => router.push(`/patients/${id}#summary`)}
+              onSendFollowup={(id) => router.push(`/patients/${id}#retention`)}
             />
           ))
         )}

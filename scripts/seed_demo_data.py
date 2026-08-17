@@ -33,6 +33,7 @@ from database.firestore import set_document
 from database.postgres import AsyncSessionFactory, init_db
 from models.clinic import Clinic
 from models.billing import Invoice
+from models.consultation import ReferralTracking
 from utils.date_utils import get_today_ist_date_str
 from sqlalchemy import select
 
@@ -83,12 +84,15 @@ async def seed_document(collection: str, doc_id: str, data: dict):
 DEMO_PATIENTS = [
     {
         "n": 1, "name": "Ananya Rao", "age": 34, "gender": "Female", "blood_group": "O+",
-        "allergies": ["Penicillin"], "chronic": [],
-        "complaint": "Fever, dry cough and fatigue for 3 days",
-        "diagnosis": ("J06.9", "Acute upper respiratory infection"),
-        "meds": [{"drug_name": "Paracetamol", "dosage": "500mg", "frequency": "1-1-1",
-                  "duration": "3 days", "instructions": "After food"}],
-        "queue": 1, "queue_status": "waiting", "visit_offsets": [21],
+        "allergies": ["Penicillin"], "chronic": ["Seasonal allergic rhinitis"],
+        "current_medications": [{"drug_name": "Cetirizine", "dosage": "10mg",
+                                 "frequency": "PRN", "duration": "as needed",
+                                 "instructions": "For seasonal allergy symptoms"}],
+        "complaint": "Fever for 2 days, dry cough, sore throat and generalized body ache",
+        "diagnosis": ("J30.1", "Allergic rhinitis due to pollen"),
+        "meds": [{"drug_name": "Cetirizine", "dosage": "10mg", "frequency": "0-0-1",
+                  "duration": "7 days", "instructions": "At bedtime if needed"}],
+        "queue": 1, "queue_status": "arrived", "visit_offsets": [93],
     },
     {
         "n": 2, "name": "Arjun Kumar", "age": 52, "gender": "Male", "blood_group": "B+",
@@ -97,7 +101,7 @@ DEMO_PATIENTS = [
         "diagnosis": ("I10", "Essential (primary) hypertension"),
         "meds": [{"drug_name": "Amlodipine", "dosage": "5mg", "frequency": "1-0-0",
                   "duration": "30 days", "instructions": "Morning, after food"}],
-        "queue": 2, "queue_status": "in_consultation", "visit_offsets": [30, 60],
+        "queue": 2, "queue_status": "in_progress", "visit_offsets": [30, 60],
     },
     {
         "n": 3, "name": "Meera Reddy", "age": 28, "gender": "Female", "blood_group": "A+",
@@ -106,7 +110,7 @@ DEMO_PATIENTS = [
         "diagnosis": ("G43.909", "Migraine, unspecified, not intractable"),
         "meds": [{"drug_name": "Naproxen", "dosage": "250mg", "frequency": "1-0-1",
                   "duration": "5 days", "instructions": "After food"}],
-        "queue": 3, "queue_status": "waiting", "visit_offsets": [28],
+        "queue": 3, "queue_status": "arrived", "visit_offsets": [28],
     },
     {
         "n": 4, "name": "Ramesh Sharma", "age": 42, "gender": "Male", "blood_group": "B+",
@@ -124,7 +128,7 @@ DEMO_PATIENTS = [
         "diagnosis": ("J45.909", "Unspecified asthma, uncomplicated"),
         "meds": [{"drug_name": "Salbutamol inhaler", "dosage": "100mcg", "frequency": "PRN",
                   "duration": "30 days", "instructions": "2 puffs when wheezy"}],
-        "queue": 5, "queue_status": "waiting", "visit_offsets": [45],
+        "queue": 5, "queue_status": "arrived", "visit_offsets": [45],
     },
     {
         "n": 6, "name": "Anita Verma", "age": 58, "gender": "Female", "blood_group": "A+",
@@ -260,11 +264,12 @@ async def seed_firestore():
             "chronic_conditions": p["chronic"],
             # Real last-visit date so the UI never claims "Last Visit: Today"
             # for a patient whose most recent encounter was days ago.
+            "current_medications": p.get("current_medications", []),
             "last_visit_str": (
-                "Today" if p["queue"]
-                else (NOW - timedelta(days=min(p["visit_offsets"]))).strftime("%d %b %Y")
+                (NOW - timedelta(days=min(p["visit_offsets"]))).strftime("%d %b %Y")
+                if p.get("visit_offsets") else "Not recorded"
             ),
-            "status_badge": "TODAY" if p["queue"] else "FOLLOW-UP",
+            "status_badge": "QUEUED" if p["queue"] else "FOLLOW-UP",
             "visit_count": len(p["visit_offsets"]),
             "created_at": NOW - timedelta(days=max(p["visit_offsets"]) + 30),
         })
@@ -493,6 +498,7 @@ async def reset_demo_clinic():
         clinic = res.scalar_one_or_none()
         invoices_removed = 0
         outreach_removed = 0
+        referrals_removed = 0
         if clinic is not None:
             from models.patient import RetentionOutreach
             rows = (await db.execute(
@@ -506,14 +512,26 @@ async def reset_demo_clinic():
             for row in outreach_rows:
                 await db.delete(row)
                 outreach_removed += 1
+            referral_rows = (await db.execute(
+                select(ReferralTracking).where(
+                    ReferralTracking.clinic_id == clinic.id))).scalars().all()
+            for row in referral_rows:
+                await db.delete(row)
+                referrals_removed += 1
             await db.commit()
 
     logger.info(
-        "  Reset: removed %d demo documents, %d invoices and %d retention rows for %s.",
-        removed, invoices_removed, outreach_removed, CLINIC_ID)
+        "  Reset: removed %d demo documents, %d invoices, %d retention rows and %d referral rows for %s.",
+        removed, invoices_removed, outreach_removed, referrals_removed, CLINIC_ID)
 
 
 async def main():
+    from config import settings
+    if settings.is_production:
+        raise RuntimeError(
+            "SECURITY: seed_demo_data.py must never run against production. "
+            "Synthetic demo records must not enter a real clinical database."
+        )
     do_reset = "--reset" in sys.argv
     print("\nSeeding VaidyaAI synthetic demo dataset...")
     print("  ALL RECORDS ARE FICTIONAL (data_source=SYNTHETIC_DEMO).")

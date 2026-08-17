@@ -4,21 +4,21 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-backend:$SHORT_SHA'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:$SHORT_SHA'
       - '-t'
-      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-backend:latest'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:latest'
       - './backend'
 
   # 2. Push image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-backend:$SHORT_SHA'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:$SHORT_SHA'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-backend:latest'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:latest'
 
   # 3. Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -27,7 +27,7 @@ steps:
       - 'run'
       - 'deploy'
       - 'vaidyaai-backend'
-      - '--image=asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-backend:$SHORT_SHA'
+      - '--image=asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:$SHORT_SHA'
       - '--region=asia-south1'
       - '--platform=managed'
       - '--memory=2Gi'
@@ -40,5 +40,5 @@ steps:
       - '--service-account=vaidyaai-backend@$PROJECT_ID.iam.gserviceaccount.com'
 
 images:
-  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-backend:$SHORT_SHA'
-  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-backend:latest'
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:$SHORT_SHA'
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:latest'

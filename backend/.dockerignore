@@ -1,0 +1,44 @@
+# VaidyaAI backend Docker build context exclusions.
+# Keeps the image small and prevents leaking local state/credentials.
+
+# Virtual environments (16GB+ locally) — never ship
+.venv/
+.ga_venv/
+venv/
+env/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases & dev store snapshots — never ship
+*.db
+*.sqlite3
+test.db
+*.devstore.json
+.devstore.json
+
+# Secrets & env — never ship
+.env
+.env.*
+!*.env.example
+*service-account*.json
+*credentials*.json
+*.pem
+*.key
+
+# Git & CI
+.git/
+.github/
+.gitignore
+
+# Logs & scratch
+*.log
+tmp/
+temp/
+
+# Docs & reports (not needed at runtime)
+*.md

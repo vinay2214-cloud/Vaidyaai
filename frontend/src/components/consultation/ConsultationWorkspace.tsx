@@ -46,6 +46,33 @@ const tabs = [
 
 type TabId = (typeof tabs)[number]["id"];
 
+function formatClinicalFactItem(item: unknown): string {
+  if (item == null) return "";
+  if (typeof item === "string") return item;
+  if (typeof item === "number") return String(item);
+  if (typeof item === "object") {
+    const rec = item as Record<string, unknown>;
+    const name = rec.name ?? rec.finding ?? rec.symptom ?? rec.description ?? rec.text;
+    if (typeof name === "string" && name.trim()) return name;
+  }
+  return "";
+}
+
+function formatClinicalFactList(items: unknown): string {
+  if (!Array.isArray(items)) return "";
+  return items.map(formatClinicalFactItem).filter(Boolean).join(", ");
+}
+
+function formatClinicalDuration(duration: unknown): string {
+  if (!duration) return "Current encounter";
+  if (typeof duration === "string") return duration;
+  if (typeof duration === "object") {
+    const rec = duration as Record<string, unknown>;
+    if (typeof rec.value === "string" && rec.value.trim()) return rec.value;
+  }
+  return "Current encounter";
+}
+
 interface ConsultationWorkspaceProps {
   consultation: ConsultationData;
   consultationId: string;
@@ -814,7 +841,7 @@ export function ConsultationWorkspace({
                   <p className="text-sm font-medium text-foreground">Chief Complaint & Duration</p>
                   <p className="text-xs text-foreground-subtle">
                     {consultation.clinical_facts?.symptoms
-                      ? `${consultation.clinical_facts.symptoms.join(", ")} — ${consultation.clinical_facts.duration || "Current encounter"}`
+                      ? `${formatClinicalFactList(consultation.clinical_facts.symptoms)} — ${formatClinicalDuration(consultation.clinical_facts.duration)}`
                       : consultation.complaint_summary || "New Patient Consultation"}
                   </p>
                 </div>
@@ -849,7 +876,7 @@ export function ConsultationWorkspace({
                   <p className="text-sm font-medium text-foreground">Documented Negative Findings</p>
                   <p className="text-xs text-foreground-subtle">
                     {Array.isArray(consultation.clinical_facts?.negative_findings) && consultation.clinical_facts.negative_findings.length > 0
-                      ? consultation.clinical_facts.negative_findings.join(", ")
+                      ? formatClinicalFactList(consultation.clinical_facts.negative_findings)
                       : "None explicitly documented"}
                   </p>
                 </div>

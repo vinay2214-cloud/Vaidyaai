@@ -168,3 +168,25 @@ async def test_patient_summary_rejects_cross_tenant_access():
     with TestClient(app) as client:
         resp = client.get("/api/v1/fhir/Patient/pat_other_clinic/summary", headers=AUTH)
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_patient_summary_includes_patient_level_allergy():
+    """A documented patient-level allergy must appear in the IPS bundle even when
+    no reviewed consultation re-captured it."""
+    await _seed(consultation_count=1)
+    await set_document("patients", PATIENT_ID, {
+        "patient_id": PATIENT_ID, "clinic_id": CLINIC_ID, "name": "DEMO Patient",
+        "phone": "+915550001111", "gender": "female", "age": 34,
+        "allergies": ["Penicillin"],
+    })
+    with TestClient(app) as client:
+        resp = client.get(f"/api/v1/fhir/Patient/{PATIENT_ID}/summary", headers=AUTH)
+    assert resp.status_code == 200, resp.text
+    bundle = resp.json()
+    allergens = {
+        e["resource"]["code"]["text"]
+        for e in bundle["entry"]
+        if e["resource"]["resourceType"] == "AllergyIntolerance"
+    }
+    assert "Penicillin" in allergens

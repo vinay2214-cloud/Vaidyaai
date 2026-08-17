@@ -121,3 +121,46 @@ async def test_patient_summary_bundle_references_resolve():
     ]
     bundle = await export_patient_summary_to_fhir(PATIENT, consultations, CLINIC)
     assert_bundle_references_resolve(bundle)
+
+
+def _allergy_resources(bundle):
+    return [
+        e["resource"] for e in bundle["entry"]
+        if e["resource"]["resourceType"] == "AllergyIntolerance"
+    ]
+
+
+def _allergen_names(bundle):
+    return {r["code"]["text"] for r in _allergy_resources(bundle)}
+
+
+@pytest.mark.asyncio
+async def test_patient_summary_includes_patient_level_allergy():
+    """A documented patient-level allergy must appear in the IPS bundle even when
+    no reviewed consultation re-captured it."""
+    patient = dict(PATIENT, allergies=["Penicillin"])
+    consultations = [_consultation()]  # consultation carries no patient_allergies
+    bundle = await export_patient_summary_to_fhir(patient, consultations, CLINIC)
+    assert "Penicillin" in _allergen_names(bundle)
+    assert_bundle_references_resolve(bundle)
+
+
+@pytest.mark.asyncio
+async def test_patient_summary_deduplicates_patient_and_consultation_allergy():
+    """The same allergy on the patient record and the consultation must be
+    exported once, not duplicated."""
+    patient = dict(PATIENT, allergies=["Penicillin"])
+    consultations = [_consultation(patient_allergies=[{"allergen": "Penicillin", "reaction": "Rash"}])]
+    bundle = await export_patient_summary_to_fhir(patient, consultations, CLINIC)
+    assert _allergen_names(bundle) == {"Penicillin"}
+    assert len(_allergy_resources(bundle)) == 1
+
+
+@pytest.mark.asyncio
+async def test_consultation_bundle_includes_patient_level_allergy():
+    """The consultation export must include the patient's documented allergy even
+    when the consultation document itself does not carry patient_allergies."""
+    patient = dict(PATIENT, allergies=["Penicillin"])
+    bundle = await export_consultation_to_fhir(_consultation(), patient, CLINIC)
+    assert "Penicillin" in _allergen_names(bundle)
+    assert_bundle_references_resolve(bundle)

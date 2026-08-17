@@ -354,11 +354,11 @@ fi
 # ─── Step 8: Artifact Registry ─────────────────────────────────────────────
 info "Step 8/9: Setting up Artifact Registry..."
 
-if gcloud artifacts repositories describe vaidyaai-repo \
+if gcloud artifacts repositories describe vaidyaai-docker-repo \
     --location="${REGION}" --format="value(name)" &> /dev/null 2>&1; then
     success "Artifact Registry repo already exists"
 else
-    gcloud artifacts repositories create vaidyaai-repo \
+    gcloud artifacts repositories create vaidyaai-docker-repo \
         --repository-format=docker \
         --location="${REGION}" \
         --description="VaidyaAI Docker images" \
@@ -399,7 +399,7 @@ echo "    2. insight-engine-weekly   (9:00 AM IST Monday)"
 echo "    3. billing-pnl-daily      (9:00 PM IST daily)"
 echo ""
 echo "  Artifact Registry:"
-echo "    ${REGION}-docker.pkg.dev/${PROJECT_ID}/vaidyaai-repo"
+echo "    ${REGION}-docker.pkg.dev/${PROJECT_ID}/vaidyaai-docker-repo"
 echo ""
 echo "=============================================="
 echo "  NEXT STEPS:"

@@ -12,9 +12,9 @@
 
 set -euo pipefail
 
-PROJECT_ID="${GCP_PROJECT_ID:-vaidyaai-prod}"
+PROJECT_ID="${GCP_PROJECT_ID:-vaidyaai-xprize}"
 REGION="asia-south1"
-REPO="${REGION}-docker.pkg.dev/${PROJECT_ID}/vaidyaai-repo"
+REPO="${REGION}-docker.pkg.dev/${PROJECT_ID}/vaidyaai-docker-repo"
 SERVICE_ACCOUNT="vaidyaai-backend@${PROJECT_ID}.iam.gserviceaccount.com"
 
 GREEN='\033[0;32m'

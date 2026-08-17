@@ -173,7 +173,7 @@ gcloud services enable \
 ## B2. Artifact Registry
 
 ```bash
-gcloud artifacts repositories create vaidyaai-repo \
+gcloud artifacts repositories create vaidyaai-docker-repo \
   --repository-format=docker --location="$REGION" \
   --description="VaidyaAI containers"
 
@@ -291,10 +291,10 @@ gcloud run services logs read vaidyaai-backend --region="$REGION" --limit=50
 ```bash
 cd "/Volumes/Extreme SSD/VaidyaAI_FINAL_VALIDATION/Vaidyaai"
 
-gcloud builds submit --tag "${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/vaidyaai-repo/vaidyaai-frontend:latest" ./frontend
+gcloud builds submit --tag "${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/vaidyaai-docker-repo/vaidyaai-frontend:latest" ./frontend
 
 gcloud run deploy vaidyaai-frontend \
-  --image="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/vaidyaai-repo/vaidyaai-frontend:latest" \
+  --image="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/vaidyaai-docker-repo/vaidyaai-frontend:latest" \
   --region="$REGION" --platform=managed --allow-unauthenticated \
   --memory=1Gi --cpu=1 --min-instances=1 \
   --set-env-vars="NEXT_PUBLIC_BACKEND_URL=${BACKEND_URL},NEXT_PUBLIC_DEV_AUTH_BYPASS=false"

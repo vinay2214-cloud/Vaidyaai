@@ -43,6 +43,30 @@ def normalize_referral_urgency(raw_urgency: Any) -> str:
     return DEFAULT_REFERRAL_URGENCY
 
 
+# Canonical urgency levels ordered from least to most urgent.
+REFERRAL_URGENCY_RANK = {"routine": 0, "urgent": 1}
+
+
+def escalate_referral_urgency(
+    model_urgency: Optional[str],
+    requested_urgency: Optional[str] = None
+) -> str:
+    """Return the more urgent of the model's determination and the clinician's request.
+
+    A clinician who explicitly asks for an emergency referral must never have it
+    downgraded because the LLM judged the case routine. Conversely, a model
+    escalation is preserved when the clinician left urgency unspecified.
+    """
+    candidates = [
+        normalize_referral_urgency(value)
+        for value in (model_urgency, requested_urgency)
+        if value is not None
+    ]
+    if not candidates:
+        return DEFAULT_REFERRAL_URGENCY
+    return max(candidates, key=lambda level: REFERRAL_URGENCY_RANK.get(level, 0))
+
+
 class ReferralCoordinatorAgent(BaseAgent):
     """
     Agent 7: ReferralCoordinator
@@ -59,7 +83,8 @@ class ReferralCoordinatorAgent(BaseAgent):
         consultation_id: str,
         clinic_id: str,
         patient_phone: str,
-        speciality: Optional[str] = None
+        speciality: Optional[str] = None,
+        requested_urgency: Optional[str] = None
     ) -> Dict[str, Any]:
         consultation = await get_document("consultations", consultation_id)
         if not consultation:
@@ -89,9 +114,16 @@ class ReferralCoordinatorAgent(BaseAgent):
         target_speciality = speciality or referral_res.get("speciality", "Specialist Consultation")
         # Normalize urgency safely: Gemini may return null/empty/invalid, which
         # must never reach urgency.upper() as None.
-        urgency = normalize_referral_urgency(referral_res.get("urgency"))
-        referral_letter = referral_res.get(
-            "formal_referral_letter",
+        # Never downgrade a clinician's explicit escalation to the model's guess:
+        # take the more urgent of (clinician request, model determination).
+        urgency = escalate_referral_urgency(
+            normalize_referral_urgency(referral_res.get("urgency")),
+            normalize_referral_urgency(requested_urgency) if requested_urgency else None,
+        )
+        # Gemini may return the key with a null value (not just omit it), so a
+        # plain .get(default) would leave referral_letter as None and crash the
+        # relational mirror below. Fall back to the default for both cases.
+        referral_letter = referral_res.get("formal_referral_letter") or (
             f"Dear Doctor / Colleague,\n\nReferred patient for evaluation regarding {target_speciality}.\n\nThank you,\n{doctor_name}"
         )
 

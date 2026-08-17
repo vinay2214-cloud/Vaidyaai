@@ -122,6 +122,37 @@ def fhir_allergy_intolerance(allergy_id, patient_id, allergen, reaction=None,
     return r
 
 
+def _iter_patient_allergies(patient, consultation=None):
+    """
+    Yield (allergen, reaction) pairs for a patient, deduplicated by allergen name.
+
+    The patient document's `allergies` field is the canonical source of a
+    patient's known allergies. A consultation may additionally carry
+    `patient_allergies` (the allergy context captured at the time of the
+    encounter). Both are included so the FHIR export never omits a documented
+    allergy, while duplicates across the two sources are collapsed.
+    """
+    seen = set()
+    sources = []
+    if consultation:
+        sources.extend(consultation.get("patient_allergies", []) or [])
+    sources.extend(patient.get("allergies", []) or [])
+    for allergy in sources:
+        if isinstance(allergy, dict):
+            allergen = allergy.get("allergen", "")
+            reaction = allergy.get("reaction")
+        else:
+            allergen = str(allergy)
+            reaction = None
+        if not allergen:
+            continue
+        key = allergen.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        yield allergen, reaction
+
+
 def fhir_medication_request(medication_request_id, patient_id, encounter_id, drug_name,
                             dosage=None, frequency=None, route=None, authored_on=None):
     r = {"resourceType": "MedicationRequest", "id": medication_request_id,
@@ -295,9 +326,7 @@ async def export_consultation_to_fhir(consultation, patient, clinic):
             icd10_code=d.get("icd10_code"),
             verification_status="unconfirmed" if d.get("is_provisional", True) else "confirmed"))
 
-    for i, allergy in enumerate(consultation.get("patient_allergies", [])):
-        allergen = allergy.get("allergen", allergy) if isinstance(allergy, dict) else str(allergy)
-        reaction = allergy.get("reaction") if isinstance(allergy, dict) else None
+    for i, (allergen, reaction) in enumerate(_iter_patient_allergies(patient, consultation)):
         resources.append(fhir_allergy_intolerance(
             allergy_id=f"allergy_{consultation_id}_{i}", patient_id=patient_id,
             allergen=allergen, reaction=reaction))
@@ -371,6 +400,17 @@ async def export_patient_summary_to_fhir(patient, consultations, clinic):
 
     section_refs = {"conditions": [], "medications": [], "allergies": [], "observations": []}
 
+    # Patient-level allergies are canonical facts on the patient record and must
+    # appear in the summary even when no reviewed consultation re-captured them.
+    added_allergens = set()
+    for i, (allergen, reaction) in enumerate(_iter_patient_allergies(patient)):
+        ai = fhir_allergy_intolerance(
+            allergy_id=f"allergy_patient_{i}", patient_id=patient_id,
+            allergen=allergen, reaction=reaction)
+        resources.append(ai)
+        section_refs["allergies"].append({"reference": f"AllergyIntolerance/allergy_patient_{i}"})
+        added_allergens.add(allergen.strip().lower())
+
     for consultation in consultations:
         consultation_id = consultation.get("consultation_id", "")
         appointment_id = consultation.get("appointment_id")
@@ -409,14 +449,15 @@ async def export_patient_summary_to_fhir(patient, consultations, clinic):
             resources.append(mr)
             section_refs["medications"].append({"reference": f"MedicationRequest/medreq_{consultation_id}_{i}"})
 
-        for i, allergy in enumerate(consultation.get("patient_allergies", [])):
-            allergen = allergy.get("allergen", allergy) if isinstance(allergy, dict) else str(allergy)
-            reaction = allergy.get("reaction") if isinstance(allergy, dict) else None
+        for i, (allergen, reaction) in enumerate(_iter_patient_allergies({}, consultation)):
+            if allergen.strip().lower() in added_allergens:
+                continue
             ai = fhir_allergy_intolerance(
                 allergy_id=f"allergy_{consultation_id}_{i}", patient_id=patient_id,
                 allergen=allergen, reaction=reaction)
             resources.append(ai)
             section_refs["allergies"].append({"reference": f"AllergyIntolerance/allergy_{consultation_id}_{i}"})
+            added_allergens.add(allergen.strip().lower())
 
         vitals = consultation.get("vitals", {}) or {}
         for i, (key, display, loinc) in enumerate([

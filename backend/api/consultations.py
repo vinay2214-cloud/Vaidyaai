@@ -73,6 +73,7 @@ class CreateReferralRequest(BaseModel):
     clinic_id: str
     patient_phone: str
     speciality: Optional[str] = None
+    urgency: Optional[str] = None
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -406,7 +407,8 @@ async def create_consultation_referral(
         consultation_id=id,
         clinic_id=req.clinic_id,
         patient_phone=req.patient_phone,
-        speciality=req.speciality
+        speciality=req.speciality,
+        requested_urgency=req.urgency
     )
 
     # Emit REFERRAL_CREATED event AFTER database commit

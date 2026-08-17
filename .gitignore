@@ -101,3 +101,6 @@ temp/
 # Development-only durable document store snapshot (never committed)
 backend/.devstore.json
 *.devstore.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo

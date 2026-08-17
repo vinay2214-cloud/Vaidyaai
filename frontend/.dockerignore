@@ -1,0 +1,29 @@
+# VaidyaAI frontend Docker build context exclusions.
+# Keeps the image small and prevents leaking local state/credentials.
+
+# Dependencies & build output (80GB+ locally) — never ship
+node_modules/
+.next/
+out/
+build/
+
+# Secrets & env — never ship
+.env
+.env.*
+!*.env.example
+
+# Git & CI
+.git/
+.github/
+.gitignore
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Logs & scratch
+*.log
+tmp/
+temp/
+
+# Docs & reports (not needed at runtime)
+*.md

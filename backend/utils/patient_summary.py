@@ -118,6 +118,18 @@ async def generate_patient_summary(
 
         encounter_summaries.append(encounter_summary)
 
+    # Patient-level allergies are canonical facts on the patient record and must
+    # be reflected in the summary even when no reviewed consultation re-captured
+    # them. They are deduplicated below alongside consultation-level allergies.
+    for allergy in patient.get("allergies", []) or []:
+        allergen = allergy.get("allergen", allergy) if isinstance(allergy, dict) else str(allergy)
+        reaction = allergy.get("reaction") if isinstance(allergy, dict) else None
+        all_allergies.append({
+            "allergen": allergen,
+            "reaction": reaction,
+            "encounter_id": None,
+        })
+
     # Deduplicate allergies
     seen_allergens = set()
     unique_allergies = []

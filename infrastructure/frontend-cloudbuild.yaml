@@ -1,24 +1,36 @@
 steps:
   # 1. Build Docker image
+  # NEXT_PUBLIC_* values are baked in at build time. Pass them as build args from
+  # Cloud Build substitutions (set at submit time, e.g. --substitutions=_BACKEND_URL=...).
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-t'
-      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-frontend:$SHORT_SHA'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-frontend:$SHORT_SHA'
       - '-t'
-      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-frontend:latest'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-frontend:latest'
+      - '--build-arg=NEXT_PUBLIC_BACKEND_URL=${_BACKEND_URL}'
+      - '--build-arg=NEXT_PUBLIC_DEV_AUTH_BYPASS=false'
+      - '--build-arg=NEXT_PUBLIC_FIREBASE_API_KEY=${_FIREBASE_API_KEY}'
+      - '--build-arg=NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${_FIREBASE_AUTH_DOMAIN}'
+      - '--build-arg=NEXT_PUBLIC_FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID}'
+      - '--build-arg=NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${_FIREBASE_STORAGE_BUCKET}'
+      - '--build-arg=NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${_FIREBASE_MESSAGING_SENDER_ID}'
+      - '--build-arg=NEXT_PUBLIC_FIREBASE_APP_ID=${_FIREBASE_APP_ID}'
+      - '--build-arg=NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${_FIREBASE_MEASUREMENT_ID}'
+      - '--build-arg=NEXT_PUBLIC_USE_FIREBASE_EMULATOR=false'
       - './frontend'
 
   # 2. Push image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-frontend:$SHORT_SHA'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-frontend:$SHORT_SHA'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-frontend:latest'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-frontend:latest'
 
   # 3. Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -27,7 +39,7 @@ steps:
       - 'run'
       - 'deploy'
       - 'vaidyaai-frontend'
-      - '--image=asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-frontend:$SHORT_SHA'
+      - '--image=asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-frontend:$SHORT_SHA'
       - '--region=asia-south1'
       - '--platform=managed'
       - '--memory=512Mi'
@@ -37,5 +49,5 @@ steps:
       - '--allow-unauthenticated'
 
 images:
-  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-frontend:$SHORT_SHA'
-  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-repo/vaidyaai-frontend:latest'
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-frontend:$SHORT_SHA'
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-frontend:latest'

@@ -32,11 +32,38 @@ def _normalise(s: str) -> str:
     return (s or "").strip().lower()
 
 
+# Keys under which callers supply a medication's name, in priority order.
+_DRUG_NAME_KEYS = ("drug_name", "name", "medication_name", "medication", "drug")
+
+
+def _drug_name_of(med: Any) -> str:
+    """Extract a medication's name regardless of which key the caller used.
+
+    Safety-critical: if the name cannot be read, the deterministic allergy net
+    skips the drug entirely, so a penicillin-class prescription could pass an
+    allergy check unexamined. Accept every known spelling instead.
+    """
+    if isinstance(med, str):
+        return med
+    if not isinstance(med, dict):
+        return ""
+    for key in _DRUG_NAME_KEYS:
+        value = med.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
 def _detect_allergen_conflicts(
     medications: List[Dict[str, Any]],
     allergies: List[str],
 ) -> List[Dict[str, str]]:
     """Return a list of {drug_name, allergen} conflicts.
+
+    NOTE: callers supply medication dicts from several sources (the consultation
+    workspace uses ``drug_name``, LLM-generated SOAP plans and API clients often
+    use ``name``). Reading only one of those keys made this deterministic net
+    silently skip the drug — a fail-OPEN. Use ``_drug_name_of`` instead.
 
     A conflict is reported when a prescribed drug's name matches a keyword in a
     documented allergy's drug-class. NKDA markers are ignored (they mean *no*
@@ -53,7 +80,8 @@ def _detect_allergen_conflicts(
 
     conflicts: List[Dict[str, str]] = []
     for med in medications:
-        drug_name = _normalise(med.get("drug_name", ""))
+        raw_name = _drug_name_of(med)
+        drug_name = _normalise(raw_name)
         if not drug_name:
             continue
         for allergen in real_allergies:
@@ -62,7 +90,7 @@ def _detect_allergen_conflicts(
                 continue
             # Direct substring match (e.g. allergy "Penicillin", drug "Amoxicillin")
             if allergen_norm and allergen_norm in drug_name:
-                conflicts.append({"drug_name": med.get("drug_name", ""), "allergen": allergen})
+                conflicts.append({"drug_name": raw_name, "allergen": allergen})
                 continue
             # Class-keyword match (e.g. allergy "Penicillin" -> class keywords)
             class_key = None
@@ -73,7 +101,7 @@ def _detect_allergen_conflicts(
             if class_key:
                 for kw in _ALLERGY_CLASS_KEYWORDS[class_key]:
                     if kw in drug_name:
-                        conflicts.append({"drug_name": med.get("drug_name", ""), "allergen": allergen})
+                        conflicts.append({"drug_name": raw_name, "allergen": allergen})
                         break
     return conflicts
 
@@ -87,7 +115,7 @@ def _medication_signature(medications: List[Dict[str, Any]]) -> str:
     parts = []
     for m in medications or []:
         parts.append({
-            "drug_name": _normalise(str(m.get("drug_name", ""))),
+            "drug_name": _normalise(str(_drug_name_of(m))),
             "dosage": _normalise(str(m.get("dosage", ""))),
             "frequency": _normalise(str(m.get("frequency", ""))),
         })

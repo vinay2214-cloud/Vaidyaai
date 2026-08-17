@@ -137,9 +137,7 @@ export default function LongitudinalPatientRecordPage() {
     // Prefer the real latest encounter date; never imply a visit we cannot date.
     last_visit: latestCons?.created_at
       ? new Date(latestCons.created_at).toLocaleDateString("en-IN")
-      : patientData?.updated_at
-        ? new Date(patientData.updated_at).toLocaleDateString("en-IN")
-        : patientData?.last_visit_str || "Not recorded",
+      : patientData?.last_visit_str || "Not recorded",
     primary_physician: "Attending Medical Officer",
     visit_count: (timelineData as any)?.total_visits || rawAppts.length || patientData?.visit_count || 1,
     active_problems: Array.isArray(patientData?.chronic_conditions) && patientData.chronic_conditions.length > 0

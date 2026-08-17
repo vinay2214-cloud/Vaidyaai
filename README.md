@@ -719,7 +719,7 @@ chmod +x scripts/deploy.sh
 ```
 
 **Backend Container:**
-- Image: `asia-south1-docker.pkg.dev/${PROJECT_ID}/vaidyaai-repo/vaidyaai-backend`
+- Image: `asia-south1-docker.pkg.dev/${PROJECT_ID}/vaidyaai-docker-repo/vaidyaai-backend`
 - Resources: 2 vCPU, 2 GiB RAM
 - Scaling: 1-10 instances, 80 concurrent requests
 - Service Account: `vaidyaai-backend@${PROJECT_ID}.iam.gserviceaccount.com`

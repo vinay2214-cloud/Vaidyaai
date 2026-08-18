@@ -10,7 +10,7 @@ import {
   DEV_DOCTOR_USER,
   DEV_CLINIC_DATA
 } from "../lib/auth";
-import { DevBootstrapService } from "../services/devBootstrap";
+import { DevBootstrapService, NO_CLINIC_MAPPING } from "../services/devBootstrap";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -110,9 +110,16 @@ export function useAuth() {
             } catch (tokenErr) {
               console.warn("[useAuth] ID token refresh notice:", tokenErr);
             }
-            setClinic(mapping.clinic_id, mapping.doctor_name, mapping.clinic_name, mapping.role);
-            setSessionCookie();
-            setError(null);
+            if (!mapping.clinic_id) {
+              // Authenticated but no clinic mapping -> authorization error, not a
+              // silent dev-clinic grant. Preserve the Firebase session.
+              clearClinic();
+              setError("no_clinic");
+            } else {
+              setClinic(mapping.clinic_id, mapping.doctor_name, mapping.clinic_name, mapping.role);
+              setSessionCookie();
+              setError(null);
+            }
           }
         } catch (e: any) {
           console.group("AUTH NOTICE");
@@ -126,11 +133,16 @@ export function useAuth() {
             } catch (tokenErr) {
               console.warn("[useAuth] ID token refresh notice:", tokenErr);
             }
-            setClinic(mapping.clinic_id, mapping.doctor_name, mapping.clinic_name, mapping.role);
-            setSessionCookie();
-            setError(null);
+            if (!mapping.clinic_id) {
+              clearClinic();
+              setError("no_clinic");
+            } else {
+              setClinic(mapping.clinic_id, mapping.doctor_name, mapping.clinic_name, mapping.role);
+              setSessionCookie();
+              setError(null);
+            }
           } catch (bootstrapErr) {
-            setSessionCookie();
+            clearClinic();
             setError("no_clinic");
           }
         }

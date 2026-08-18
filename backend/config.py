@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     AI_ALLOW_MOCK_FALLBACK: bool = os.getenv("AI_ALLOW_MOCK_FALLBACK", "false").lower() in ["true", "1", "yes"]
     
     # Firebase Config
-    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "vaidyaai-xprize-d4b2d")
+    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "vaidyaai-xprize")
     
     # WhatsApp Config
     WHATSAPP_PHONE_ID: str = os.getenv("WHATSAPP_PHONE_ID", "placeholder_phone_id")

@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(wc -l /tmp/api_contract_map.md && grep -n \"MISMATCH\\|mismatch\\|RED FLAG\\|red flag\\|CRITICAL\\|Issue\" /tmp/api_contract_ma…)"
-    ]
-  }
-}

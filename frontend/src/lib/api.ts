@@ -67,14 +67,29 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const config = error?.config;
 
+    // Distinguish authentication failure (401) from authorization failure (403).
+    // 401 = the Firebase session is invalid/expired -> sign out so the user can
+    //       re-authenticate.
+    // 403 = the user IS authenticated but lacks access to the requested clinic /
+    //       resource -> DO NOT destroy the valid Firebase session. Preserve it and
+    //       surface the authorization error so the user can recover (e.g. fix the
+    //       clinic mapping) instead of being silently bounced to /login.
     if (
-      (status === 401 || status === 403) &&
+      status === 401 &&
       !isDevAuthBypassEnabled() &&
       !config?.url?.includes("/clinics/dev-provision") &&
       !config?.url?.includes("/clinics/setup")
     ) {
-      console.warn(`[VaidyaAI API Interceptor] 401/403 Unauthorized on ${config?.url}. Triggering sign-out.`);
+      console.warn(`[VaidyaAI API Interceptor] 401 on ${config?.url}. Firebase session invalid/expired. Signing out.`);
       logout();
+      return Promise.reject(error);
+    }
+
+    if (status === 403 && !isDevAuthBypassEnabled()) {
+      console.warn(
+        `[VaidyaAI API Interceptor] 403 on ${config?.url}. User is authenticated but not authorized. ` +
+        `Preserving the Firebase session; the caller will surface the authorization error.`
+      );
       return Promise.reject(error);
     }
 

@@ -16,15 +16,20 @@ PROJECT_ID="${GCP_PROJECT_ID:-vaidyaai-xprize}"
 REGION="asia-south1"
 REPO="${REGION}-docker.pkg.dev/${PROJECT_ID}/vaidyaai-docker-repo"
 SERVICE_ACCOUNT="vaidyaai-backend@${PROJECT_ID}.iam.gserviceaccount.com"
+# Numeric project number (used to derive the Cloud Run frontend URL for CORS).
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)' 2>/dev/null || echo '')"
+FRONTEND_URL="https://vaidyaai-frontend-${PROJECT_NUMBER}.asia-south1.run.app"
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
+YELLOW='\033[0;33m'
 NC='\033[0m'
 
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}[✓]${NC} $1"; }
 error() { echo -e "${RED}[✗]${NC} $1"; exit 1; }
+warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 
 DEPLOY_TARGET="${1:-all}"
 
@@ -45,6 +50,8 @@ deploy_backend() {
     docker push "${IMAGE_LATEST}"
     
     # Deploy to Cloud Run
+    # ENVIRONMENT=production is REQUIRED (otherwise the backend defaults to
+    # development). Secrets are referenced from Secret Manager by their real names.
     info "Deploying to Cloud Run..."
     gcloud run deploy vaidyaai-backend \
         --image="${IMAGE}" \
@@ -58,22 +65,18 @@ deploy_backend() {
         --timeout=300s \
         --allow-unauthenticated \
         --service-account="${SERVICE_ACCOUNT}" \
-        --set-cloudsql-instances="${PROJECT_ID}:${REGION}:vaidyaai-db" \
+        --set-cloudsql-instances="${PROJECT_ID}:${REGION}:vaidyaai-postgres" \
+        --set-env-vars="ENVIRONMENT=production,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${REGION},FIREBASE_PROJECT_ID=${PROJECT_ID},GOOGLE_GENAI_USE_VERTEXAI=true,LIVE_CLINICAL_AI=true,AI_ALLOW_MOCK_FALLBACK=false,CLOUD_TASKS_LOCATION=${REGION},CLOUD_TASKS_QUEUE_REMINDERS=appointment-reminders,CLOUD_TASKS_QUEUE_BILLING=billing-followups,CLOUD_TASKS_QUEUE_RETENTION=retention-outreach,CORS_ORIGINS=${FRONTEND_URL}" \
         --set-secrets="\
-GOOGLE_CLOUD_PROJECT=gcp-project-id:latest,\
-FIREBASE_PROJECT_ID=firebase-project-id:latest,\
-WHATSAPP_PHONE_ID=whatsapp-phone-id:latest,\
-WHATSAPP_ACCESS_TOKEN=whatsapp-access-token:latest,\
-WHATSAPP_VERIFY_TOKEN=whatsapp-verify-token:latest,\
-WHATSAPP_APP_SECRET=whatsapp-app-secret:latest,\
-RAZORPAY_KEY_ID=razorpay-key-id:latest,\
-RAZORPAY_KEY_SECRET=razorpay-key-secret:latest,\
-RAZORPAY_WEBHOOK_SECRET=razorpay-webhook-secret:latest,\
-DATABASE_URL=database-url:latest,\
-BACKEND_URL=backend-url:latest,\
-CORS_ORIGINS=cors-origins:latest,\
-GCS_BUCKET_CONSULTATIONS=gcs-bucket-consultations:latest,\
-CLOUD_TASKS_LOCATION=cloud-tasks-location:latest" \
+DATABASE_URL=DATABASE_URL:latest,\
+INTERNAL_TASK_SECRET=INTERNAL_TASK_SECRET:latest,\
+WHATSAPP_PHONE_ID=WHATSAPP_PHONE_ID:latest,\
+WHATSAPP_ACCESS_TOKEN=WHATSAPP_ACCESS_TOKEN:latest,\
+WHATSAPP_APP_SECRET=WHATSAPP_APP_SECRET:latest,\
+RAZORPAY_KEY_ID=RAZORPAY_KEY_ID:latest,\
+RAZORPAY_KEY_SECRET=RAZORPAY_KEY_SECRET:latest,\
+RAZORPAY_WEBHOOK_SECRET=RAZORPAY_WEBHOOK_SECRET:latest,\
+BACKEND_URL=BACKEND_URL:latest" \
         --quiet
     
     # Get deployed URL
@@ -83,8 +86,8 @@ CLOUD_TASKS_LOCATION=cloud-tasks-location:latest" \
     
     success "Backend deployed: ${BACKEND_URL}"
     
-    # Update backend-url secret with actual URL
-    echo -n "${BACKEND_URL}" | gcloud secrets versions add "backend-url" \
+    # Update BACKEND_URL secret with actual URL
+    echo -n "${BACKEND_URL}" | gcloud secrets versions add "BACKEND_URL" \
         --data-file=- --quiet 2>/dev/null || true
     
     # Health check
@@ -118,8 +121,30 @@ deploy_frontend() {
     local IMAGE_LATEST="${REPO}/vaidyaai-frontend:latest"
 
     # Build Docker image
+    # NEXT_PUBLIC_* values are baked in at build time by Next.js. Resolve the
+    # backend URL from the currently-deployed Cloud Run service or Secret Manager,
+    # and Firebase web config from environment variables.
+    local DEPLOYED_BACKEND_URL
+    DEPLOYED_BACKEND_URL="$(gcloud secrets versions access latest --secret=BACKEND_URL 2>/dev/null || \
+        gcloud run services describe vaidyaai-backend --region="${REGION}" --format='value(status.url)' 2>/dev/null || \
+        echo '')"
+    if [[ -z "${DEPLOYED_BACKEND_URL}" ]]; then
+        warn "Could not resolve backend URL. Set NEXT_PUBLIC_BACKEND_URL env var or deploy backend first."
+    fi
+
     info "Building frontend Docker image..."
-    docker build -t "${IMAGE}" -t "${IMAGE_LATEST}" ./frontend/
+    docker build \
+        --build-arg "NEXT_PUBLIC_BACKEND_URL=${DEPLOYED_BACKEND_URL}" \
+        --build-arg "NEXT_PUBLIC_DEV_AUTH_BYPASS=false" \
+        --build-arg "NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY:-}" \
+        --build-arg "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-${PROJECT_ID}.firebaseapp.com}" \
+        --build-arg "NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-${PROJECT_ID}}" \
+        --build-arg "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-${PROJECT_ID}.firebasestorage.app}" \
+        --build-arg "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-}" \
+        --build-arg "NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID:-}" \
+        --build-arg "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}" \
+        --build-arg "NEXT_PUBLIC_USE_FIREBASE_EMULATOR=false" \
+        -t "${IMAGE}" -t "${IMAGE_LATEST}" ./frontend/
     
     # Push to Artifact Registry
     info "Pushing to Artifact Registry..."
@@ -145,13 +170,11 @@ deploy_frontend() {
     
     success "Frontend deployed: ${FRONTEND_URL}"
     
-    # Update CORS origins to include frontend URL
-    local CURRENT_CORS=$(gcloud secrets versions access latest --secret="cors-origins" 2>/dev/null || echo "")
-    if [[ "${CURRENT_CORS}" != *"${FRONTEND_URL}"* ]]; then
-        local NEW_CORS="${CURRENT_CORS},${FRONTEND_URL}"
-        echo -n "${NEW_CORS}" | gcloud secrets versions add "cors-origins" \
-            --data-file=- --quiet 2>/dev/null || true
-        warn "CORS origins updated. Redeploy backend for changes to take effect."
+    # CORS is configured on the backend via the CORS_ORIGINS env var (set during
+    # backend deploy). If the frontend URL changed, redeploy the backend so its
+    # CORS allow-list includes the new origin.
+    if [[ "${FRONTEND_URL}" != "https://vaidyaai-frontend-.asia-south1.run.app" ]]; then
+        warn "If the frontend URL changed, redeploy the backend so CORS_ORIGINS includes ${FRONTEND_URL}."
     fi
     
     echo ""

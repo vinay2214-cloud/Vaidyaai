@@ -98,6 +98,9 @@ tmp/
 temp/
 *.tmp
 
+# Development Tooling Artifacts
+.abacusai/
+
 # Development-only durable document store snapshot (never committed)
 backend/.devstore.json
 *.devstore.json

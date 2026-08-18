@@ -21,6 +21,9 @@ steps:
       - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:latest'
 
   # 3. Deploy to Cloud Run
+  # ENVIRONMENT=production is REQUIRED: without it the backend defaults to
+  # development (dev auth bypass + in-memory document store). All secrets are
+  # referenced from Secret Manager by name; the values are never in this file.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -38,6 +41,8 @@ steps:
       - '--timeout=300s'
       - '--allow-unauthenticated'
       - '--service-account=vaidyaai-backend@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--set-env-vars=ENVIRONMENT=production,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GCP_REGION=asia-south1,FIREBASE_PROJECT_ID=$PROJECT_ID,GOOGLE_GENAI_USE_VERTEXAI=true,LIVE_CLINICAL_AI=true,AI_ALLOW_MOCK_FALLBACK=false,CLOUD_TASKS_LOCATION=asia-south1,CLOUD_TASKS_QUEUE_REMINDERS=appointment-reminders,CLOUD_TASKS_QUEUE_BILLING=billing-followups,CLOUD_TASKS_QUEUE_RETENTION=retention-outreach,CORS_ORIGINS=https://vaidyaai-frontend-$PROJECT_NUMBER.asia-south1.run.app'
+      - '--set-secrets=DATABASE_URL=DATABASE_URL:latest,INTERNAL_TASK_SECRET=INTERNAL_TASK_SECRET:latest,WHATSAPP_PHONE_ID=WHATSAPP_PHONE_ID:latest,WHATSAPP_ACCESS_TOKEN=WHATSAPP_ACCESS_TOKEN:latest,WHATSAPP_APP_SECRET=WHATSAPP_APP_SECRET:latest,RAZORPAY_KEY_ID=RAZORPAY_KEY_ID:latest,RAZORPAY_KEY_SECRET=RAZORPAY_KEY_SECRET:latest,RAZORPAY_WEBHOOK_SECRET=RAZORPAY_WEBHOOK_SECRET:latest,BACKEND_URL=BACKEND_URL:latest'
 
 images:
   - 'asia-south1-docker.pkg.dev/$PROJECT_ID/vaidyaai-docker-repo/vaidyaai-backend:$SHORT_SHA'

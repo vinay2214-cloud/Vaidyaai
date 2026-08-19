@@ -95,6 +95,22 @@ export function useAuth() {
 
           if (userDoc.exists() && userDoc.data()?.clinic_id) {
             const data = userDoc.data();
+
+            // A server-side mapping exists. If the ID token this browser holds does
+            // not yet carry the matching clinic_id custom claim (claims set by the
+            // Admin SDK never retro-update an issued token), force a refresh.
+            // Firestore security rules compare resource.data.clinic_id against
+            // request.auth.token.clinic_id, so a stale token silently breaks every
+            // realtime listener even though REST calls still work.
+            try {
+              const tokenResult = await currentUser.getIdTokenResult();
+              if (tokenResult?.claims?.clinic_id !== data.clinic_id) {
+                await currentUser.getIdToken(true);
+              }
+            } catch (tokenErr) {
+              console.warn("[useAuth] Claim reconciliation notice:", tokenErr);
+            }
+
             setClinic(
               data.clinic_id,
               data.doctor_name || "Doctor",

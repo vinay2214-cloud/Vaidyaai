@@ -1,5 +1,13 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
-import { getAuth, connectAuthEmulator, Auth } from "firebase/auth";
+import {
+  getAuth,
+  connectAuthEmulator,
+  setPersistence,
+  browserLocalPersistence,
+  onAuthStateChanged,
+  Auth,
+  User
+} from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator, Firestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -14,6 +22,23 @@ const firebaseConfig = {
 let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 let firestoreInstance: Firestore | null = null;
+
+/**
+ * Resolves once Firebase Auth has finished restoring any persisted session and
+ * the *initial* auth state is known. Created exactly once per auth instance.
+ *
+ * WHY THIS EXISTS:
+ * `auth.currentUser` is `null` during the brief window between page load and the
+ * completion of the IndexedDB persistence restore. Code that reads
+ * `auth.currentUser` synchronously on mount therefore sees "not signed in" even
+ * for a perfectly valid session. That produced requests with no Authorization
+ * header, which the backend correctly rejected with 401, which in turn tripped
+ * the axios interceptor into signing the user out and bouncing them to /login.
+ *
+ * Always await this before concluding that no user is signed in.
+ */
+let authReadyPromise: Promise<User | null> | null = null;
+let persistencePromise: Promise<void> | null = null;
 
 /**
  * Returns FirebaseApp instance ONLY on client-side (`typeof window !== 'undefined'`).
@@ -54,6 +79,15 @@ export function getFirebaseAuth(): Auth | null {
     const app = getFirebaseApp();
     if (!app) return null;
     authInstance = getAuth(app);
+
+    // Explicitly pin persistence to browserLocalPersistence (IndexedDB/localStorage)
+    // so a verified session survives a full page reload deterministically instead
+    // of depending on the SDK's default persistence resolution order.
+    persistencePromise = setPersistence(authInstance, browserLocalPersistence).catch(
+      (e) => {
+        console.warn("[Firebase] Could not set browserLocalPersistence:", e);
+      }
+    );
 
     if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true") {
       const authHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || "http://127.0.0.1:9099";
@@ -115,5 +149,103 @@ export function getFirestoreDb(): Firestore | null {
  */
 export const firebaseAuth = (typeof window !== "undefined" ? getFirebaseAuth() : null) as Auth;
 export const firestore = (typeof window !== "undefined" ? getFirestoreDb() : null) as Firestore;
+
+/**
+ * Wait until Firebase Auth has restored any persisted session, then resolve with
+ * the current user (or null if genuinely signed out).
+ *
+ * This is the ONLY safe way to ask "is someone signed in?" during app startup.
+ * Reading `auth.currentUser` directly races the persistence restore.
+ *
+ * Resolves null immediately during SSR.
+ */
+export function waitForAuthReady(): Promise<User | null> {
+  if (typeof window === "undefined") {
+    return Promise.resolve(null);
+  }
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    return Promise.resolve(null);
+  }
+  if (!authReadyPromise) {
+    authReadyPromise = (async () => {
+      // Ensure the persistence layer is configured before reading auth state.
+      try {
+        if (persistencePromise) await persistencePromise;
+      } catch {
+        /* persistence failures are already logged; continue */
+      }
+      return await new Promise<User | null>((resolve) => {
+        const unsubscribe = onAuthStateChanged(
+          auth,
+          (user) => {
+            unsubscribe();
+            resolve(user);
+          },
+          (err) => {
+            console.warn("[Firebase] auth state resolution error:", err);
+            unsubscribe();
+            resolve(null);
+          }
+        );
+      });
+    })();
+  }
+  return authReadyPromise;
+}
+
+/**
+ * Returns the signed-in user AFTER waiting for the persistence restore to finish.
+ * Prefer this over `getFirebaseAuth()?.currentUser` anywhere correctness matters.
+ */
+export async function getAuthenticatedUser(): Promise<User | null> {
+  await waitForAuthReady();
+  return getFirebaseAuth()?.currentUser ?? null;
+}
+
+/**
+ * Wait until a NON-NULL user is observed on the auth instance, up to `timeoutMs`.
+ *
+ * Used immediately after a sign-in completes. waitForAuthReady() caches the first
+ * observed state (which on the login page is null, pre-sign-in), so it cannot be
+ * reused to detect the freshly signed-in user. This subscribes fresh and resolves
+ * as soon as the SDK reports a user, which is also the point at which the session
+ * has been committed to the persistence layer.
+ *
+ * Resolves null on timeout rather than hanging the sign-in UI.
+ */
+export function waitForSignedInUser(timeoutMs: number = 8000): Promise<User | null> {
+  if (typeof window === "undefined") {
+    return Promise.resolve(null);
+  }
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    return Promise.resolve(null);
+  }
+  if (auth.currentUser) {
+    return Promise.resolve(auth.currentUser);
+  }
+  return new Promise<User | null>((resolve) => {
+    let settled = false;
+    const finish = (user: User | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(user);
+    };
+    const timer = setTimeout(() => finish(auth.currentUser ?? null), timeoutMs);
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (user) => {
+        if (user) finish(user);
+      },
+      (err) => {
+        console.warn("[Firebase] sign-in state resolution error:", err);
+        finish(null);
+      }
+    );
+  });
+}
 
 export default firebaseConfig;

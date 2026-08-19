@@ -8,15 +8,32 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { Activity, UserX } from "lucide-react";
 import { logout } from "@/lib/auth";
+import { waitForAuthReady, getFirebaseAuth } from "@/lib/firebase";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, error } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user && !error) {
+    if (loading || user || error) return;
+
+    // Defence in depth: only redirect once Firebase itself confirms there is no
+    // restored session. useAuth already waits for onAuthStateChanged, but this
+    // guarantees we never bounce a user whose session is merely mid-rehydration.
+    let cancelled = false;
+    waitForAuthReady().then((restoredUser) => {
+      if (cancelled) return;
+      if (restoredUser || getFirebaseAuth()?.currentUser) {
+        // A valid session exists after all; useAuth will settle the clinic state.
+        return;
+      }
+      console.info("[DashboardLayout] No authenticated Firebase session. Redirecting to /login.");
       router.replace("/login");
-    }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [loading, user, error, router]);
 
   if (loading || (!user && !error)) {

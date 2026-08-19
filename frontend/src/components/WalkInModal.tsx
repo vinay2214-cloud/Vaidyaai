@@ -100,7 +100,27 @@ export function WalkInModal() {
       setConsultType("new");
     } catch (err: any) {
       console.error("Failed to add walk-in patient:", err);
-      setError("Could not register walk-in patient. Please verify details and try again.");
+      // Surface the real backend reason instead of a generic message: a 403
+      // (clinic mismatch) and a 422 (bad field) need very different operator
+      // responses, and hiding the detail makes production failures undiagnosable.
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      if (status === 403) {
+        setError(
+          typeof detail === "string" && detail
+            ? detail
+            : "Your account is not authorized for this clinic. Please sign in again."
+        );
+      } else if (typeof detail === "string" && detail) {
+        setError(detail);
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0];
+        setError(first?.msg ? `Invalid input: ${first.msg}` : "Invalid patient details provided.");
+      } else if (!err?.response) {
+        setError("Cannot reach the VaidyaAI backend. Please check your connection and retry.");
+      } else {
+        setError("Could not register walk-in patient. Please verify details and try again.");
+      }
     } finally {
       setLoading(false);
     }

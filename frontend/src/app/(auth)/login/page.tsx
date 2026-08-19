@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "firebase/auth";
-import { getFirebaseAuth } from "@/lib/firebase";
+import { getFirebaseAuth, waitForSignedInUser } from "@/lib/firebase";
 import { setSessionCookie, isDevAuthBypassEnabled, DEV_CLINIC_DATA } from "@/lib/auth";
 import { useClinicStore } from "@/store/clinicStore";
 import { Activity, Phone, ArrowRight, ShieldCheck } from "lucide-react";
@@ -91,13 +91,27 @@ export default function LoginPage() {
         setStep("phone");
         return;
       }
-      await confirmationResult.confirm(otp);
-      setSessionCookie();
-      if (typeof window !== "undefined") {
-        window.location.assign("/");
-      } else {
-        router.push("/");
+      const credential = await confirmationResult.confirm(otp);
+
+      // Do NOT navigate the instant confirm() resolves. The Firebase SDK writes
+      // the restored session to its persistence layer (IndexedDB) asynchronously
+      // and confirm() does not await that write. A hard navigation here can tear
+      // the document down mid-transaction, so the next page load finds no
+      // persisted user, onAuthStateChanged fires null, and the dashboard layout
+      // bounces straight back to /login.
+      //
+      // Wait until the auth state is observably settled with a signed-in user.
+      const auth = getFirebaseAuth();
+      const settledUser = await waitForSignedInUser();
+      if (!settledUser && !auth?.currentUser && !credential?.user) {
+        setError("Sign-in could not be completed. Please try again.");
+        return;
       }
+      setSessionCookie();
+
+      // Soft client-side navigation keeps the already-initialised Firebase Auth
+      // instance in memory, so the dashboard does not depend on a cold rehydrate.
+      router.replace("/");
     } catch (err: any) {
       console.error("OTP verification error:", err);
       setError("Invalid or expired verification code. Please try again.");

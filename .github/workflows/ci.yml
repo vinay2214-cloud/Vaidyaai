@@ -54,5 +54,19 @@ jobs:
         run: npx tsc --noEmit
       - name: Lint
         run: npm run lint
+      # frontend/next.config.mjs refuses to run a production build without a
+      # complete Firebase Web App config, so that a deployable image can never be
+      # produced with broken auth. CI only verifies that the app compiles, so it
+      # supplies non-secret placeholder values here. Real values are injected as
+      # Docker build args by infrastructure/frontend-cloudbuild.yaml.
       - name: Build
         run: npm run build
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-placeholder-api-key
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: vaidyaai-xprize.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: vaidyaai-xprize
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: vaidyaai-xprize.appspot.com
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:000000000000:web:ciplaceholder"
+          NEXT_PUBLIC_DEV_AUTH_BYPASS: "false"
+          NEXT_PUBLIC_USE_FIREBASE_EMULATOR: "false"

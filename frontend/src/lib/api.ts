@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getFirebaseAuth } from "./firebase";
+import { getAuthenticatedUser } from "./firebase";
 import { BACKEND_URL } from "./constants";
 import { logout, isDevAuthBypassEnabled } from "./auth";
 
@@ -13,14 +13,19 @@ import { logout, isDevAuthBypassEnabled } from "./auth";
  *
  * Returns null when no authenticated user is available (caller must not send
  * an Authorization header in that case).
+ *
+ * IMPORTANT: this awaits the Firebase persistence restore via
+ * getAuthenticatedUser() instead of reading `auth.currentUser` synchronously.
+ * Reading currentUser directly races the IndexedDB session restore on page load
+ * and returns null for a perfectly valid session, producing a token-less request
+ * that the backend rejects with 401 -> spurious sign-out -> bounce to /login.
  */
 export async function getAuthToken(): Promise<string | null> {
   if (isDevAuthBypassEnabled()) {
     return "dev_mock_id_token";
   }
   if (typeof window !== "undefined") {
-    const auth = getFirebaseAuth();
-    const user = auth?.currentUser;
+    const user = await getAuthenticatedUser();
     if (user) {
       return await user.getIdToken();
     }
@@ -56,6 +61,10 @@ api.interceptors.request.use(async (config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Record whether this request actually carried a credential. A 401 on a
+  // request that never had a token is NOT evidence of an expired session, so it
+  // must not trigger a sign-out.
+  (config as any)._hadAuthToken = Boolean(token);
   return config;
 }, (error) => {
   return Promise.reject(error);
@@ -80,6 +89,19 @@ api.interceptors.response.use(
       !config?.url?.includes("/clinics/dev-provision") &&
       !config?.url?.includes("/clinics/setup")
     ) {
+      // Only sign out when the request actually presented a Firebase credential
+      // and the backend still rejected it -- that is a genuinely invalid/expired
+      // session. A 401 on a request that carried no token means the auth state
+      // had not finished restoring; signing out there would destroy a valid
+      // session and bounce the user to /login (the production login-loop bug).
+      const hadToken = (config as any)?._hadAuthToken;
+      if (!hadToken) {
+        console.warn(
+          `[VaidyaAI API Interceptor] 401 on ${config?.url} for a request with no credential ` +
+          `(auth state not yet restored). Preserving session; not signing out.`
+        );
+        return Promise.reject(error);
+      }
       console.warn(`[VaidyaAI API Interceptor] 401 on ${config?.url}. Firebase session invalid/expired. Signing out.`);
       logout();
       return Promise.reject(error);

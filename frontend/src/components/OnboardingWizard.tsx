@@ -19,6 +19,7 @@ import {
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
 import { setSessionCookie, isDevAuthBypassEnabled } from "@/lib/auth";
+import { getAuthenticatedUser } from "@/lib/firebase";
 
 export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(1);
@@ -63,10 +64,25 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const handleFinish = async () => {
     try {
       setLoading(true);
+
+      // Provision against the REAL authenticated Firebase identity. The backend
+      // derives the tenant owner from the verified token's uid, so the wizard must
+      // be driven by an actually signed-in user.
+      const firebaseUser = await getAuthenticatedUser();
+      if (!firebaseUser && !isDevAuthBypassEnabled()) {
+        alert("Your session is not active. Please sign in again before creating a clinic.");
+        return;
+      }
+
+      // Prefer the verified phone number on the Firebase account over free-text
+      // input so the tenant record matches the authenticated identity.
+      const resolvedPhone =
+        firebaseUser?.phoneNumber || contactPhone.trim() || adminMobile.trim() || "";
+
       const res = await api.post("/clinics/setup", {
         clinic_name: clinicName.trim() || "Arogya Family Practice",
         doctor_name: doctorName.trim() || "Dr. Ramesh",
-        phone: contactPhone || adminMobile || "+919876543210",
+        phone: resolvedPhone,
         location: address,
         consultation_fees: {
           new_patient_paise: newFee * 100,
@@ -75,6 +91,18 @@ export function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
         },
         whatsapp_phone_id: "default_phone_id"
       });
+
+      // The backend just wrote Firebase custom claims (clinic_id, role) via the
+      // Admin SDK. set_custom_user_claims does NOT update the ID token already
+      // held by this browser, so we must force a refresh. Without this the next
+      // requests carry a token with no clinic_id claim, and Firestore security
+      // rules (which compare resource.data.clinic_id to
+      // request.auth.token.clinic_id) deny every read.
+      try {
+        await firebaseUser?.getIdToken(true);
+      } catch (tokenErr) {
+        console.warn("[VaidyaAI Onboarding] ID token refresh notice:", tokenErr);
+      }
 
       setClinic(
         res.data.clinic_id,

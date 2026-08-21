@@ -54,6 +54,10 @@ images:
 
 # Defaults for the non-secret Firebase Web App identifiers, pinned to the
 # vaidyaai-xprize project so a build can never silently target a stale project.
+# These are verified against the config actually inlined in the serving bundle of
+# revision vaidyaai-frontend-00004 — do not "tidy" them without re-checking the
+# Firebase console, as a mismatched storageBucket or appId breaks auth silently.
+#
 # _FIREBASE_API_KEY is deliberately NOT defaulted: it must be supplied at submit
 # time, e.g.
 #   gcloud builds submit --config infrastructure/frontend-cloudbuild.yaml \
@@ -64,6 +68,10 @@ substitutions:
   _BACKEND_URL: 'https://vaidyaai-backend-353775352272.asia-south1.run.app'
   _FIREBASE_AUTH_DOMAIN: 'vaidyaai-xprize.firebaseapp.com'
   _FIREBASE_PROJECT_ID: 'vaidyaai-xprize'
-  _FIREBASE_STORAGE_BUCKET: 'vaidyaai-xprize.appspot.com'
+  # The bucket is on the newer firebasestorage.app domain, NOT appspot.com.
+  _FIREBASE_STORAGE_BUCKET: 'vaidyaai-xprize.firebasestorage.app'
   _FIREBASE_MESSAGING_SENDER_ID: '353775352272'
+  # Previously undefaulted, which made every submit that forgot it fail with an
+  # unmatched-substitution error before a single layer was built.
+  _FIREBASE_APP_ID: '1:353775352272:web:a03c774a7d77ac3003e1d5'
   _FIREBASE_MEASUREMENT_ID: ''

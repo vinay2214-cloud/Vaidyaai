@@ -68,13 +68,25 @@ class Settings(BaseSettings):
     # Feature Flags
     FEATURE_AI_AUTONOMOUS: bool = os.getenv("FEATURE_AI_AUTONOMOUS", "true").lower() in ["true", "1", "yes"]
     FEATURE_WHATSAPP: bool = os.getenv("FEATURE_WHATSAPP", "true").lower() in ["true", "1", "yes"]
+    FEATURE_RAZORPAY: bool = os.getenv("FEATURE_RAZORPAY", "true").lower() in ["true", "1", "yes"]
     FEATURE_VOICE: bool = os.getenv("FEATURE_VOICE", "true").lower() in ["true", "1", "yes"]
     FEATURE_REALTIME_EVENTS: bool = os.getenv("FEATURE_REALTIME_EVENTS", "true").lower() in ["true", "1", "yes"]
     FEATURE_ANALYTICS: bool = os.getenv("FEATURE_ANALYTICS", "true").lower() in ["true", "1", "yes"]
     FEATURE_DEMO_MODE: bool = os.getenv("FEATURE_DEMO_MODE", "false").lower() in ["true", "1", "yes"]
 
     # CORS Config
-    CORS_ORIGINS_RAW: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    #
+    # The deployed frontend origin MUST be listed explicitly. A wildcard ("*")
+    # is invalid here: the API sends `Access-Control-Allow-Credentials: true`,
+    # and the CORS spec forbids pairing that with a wildcard origin, so browsers
+    # reject every response without a visible error. `production_config_errors`
+    # fails the boot rather than let that ship.
+    CORS_ORIGINS_RAW: str = os.getenv(
+        "CORS_ORIGINS",
+        "https://vaidyaai-frontend-353775352272.asia-south1.run.app,"
+        "http://localhost:3000,"
+        "http://127.0.0.1:3000",
+    )
 
     @field_validator("DATABASE_URL")
     @classmethod
@@ -97,7 +109,16 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> List[str]:
-        return [origin.strip() for origin in self.CORS_ORIGINS_RAW.split(",") if origin.strip()]
+        # De-duplicate while preserving order so a repeated origin in the env var
+        # cannot produce a malformed Access-Control-Allow-Origin header.
+        seen: set = set()
+        origins: List[str] = []
+        for origin in self.CORS_ORIGINS_RAW.split(","):
+            origin = origin.strip().rstrip("/")
+            if origin and origin not in seen:
+                seen.add(origin)
+                origins.append(origin)
+        return origins
 
     @property
     def is_production(self) -> bool:
@@ -116,19 +137,50 @@ class Settings(BaseSettings):
                 "DATABASE_URL must point to a managed database (e.g. PostgreSQL), not SQLite."
             )
 
+        # Always required: these back the core API regardless of which optional
+        # integrations are switched on.
         placeholder_fields = {
             "INTERNAL_TASK_SECRET": self.INTERNAL_TASK_SECRET,
-            "WHATSAPP_PHONE_ID": self.WHATSAPP_PHONE_ID,
-            "WHATSAPP_ACCESS_TOKEN": self.WHATSAPP_ACCESS_TOKEN,
-            "WHATSAPP_APP_SECRET": self.WHATSAPP_APP_SECRET,
-            "RAZORPAY_KEY_ID": self.RAZORPAY_KEY_ID,
-            "RAZORPAY_KEY_SECRET": self.RAZORPAY_KEY_SECRET,
-            "RAZORPAY_WEBHOOK_SECRET": self.RAZORPAY_WEBHOOK_SECRET,
             "BACKEND_URL": self.BACKEND_URL,
         }
+
+        # Third-party credentials are only required when the integration that
+        # consumes them is actually enabled. Demanding them unconditionally made
+        # a deployment that deliberately runs WhatsApp/Razorpay in mock mode
+        # (FEATURE_*=false, exactly what backend/cloudbuild.yaml sets) impossible
+        # to boot, which is why HEAD could not be deployed at all. Flipping a
+        # feature flag on without wiring its secrets still fails closed.
+        if self.FEATURE_WHATSAPP:
+            placeholder_fields.update({
+                "WHATSAPP_PHONE_ID": self.WHATSAPP_PHONE_ID,
+                "WHATSAPP_ACCESS_TOKEN": self.WHATSAPP_ACCESS_TOKEN,
+                "WHATSAPP_APP_SECRET": self.WHATSAPP_APP_SECRET,
+            })
+
+        if self.FEATURE_RAZORPAY:
+            placeholder_fields.update({
+                "RAZORPAY_KEY_ID": self.RAZORPAY_KEY_ID,
+                "RAZORPAY_KEY_SECRET": self.RAZORPAY_KEY_SECRET,
+                "RAZORPAY_WEBHOOK_SECRET": self.RAZORPAY_WEBHOOK_SECRET,
+            })
+
         for name, value in placeholder_fields.items():
             if not value or "placeholder" in value.lower():
                 errors.append(f"{name} is unset or still using a placeholder value.")
+
+        if "*" in self.cors_origins:
+            errors.append(
+                "CORS_ORIGINS must not contain '*': the API sends "
+                "Access-Control-Allow-Credentials: true, and browsers reject a "
+                "wildcard origin combined with credentials. List the frontend "
+                "origin explicitly."
+            )
+
+        if not any(o.startswith("https://") for o in self.cors_origins):
+            errors.append(
+                "CORS_ORIGINS contains no https:// origin; the deployed frontend "
+                "origin is missing and every browser call will fail CORS."
+            )
 
         if not self.LIVE_CLINICAL_AI:
             errors.append("LIVE_CLINICAL_AI must be true in production.")

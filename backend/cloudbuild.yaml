@@ -24,6 +24,16 @@ steps:
   # ENVIRONMENT=production is REQUIRED: without it the backend defaults to
   # development (dev auth bypass + in-memory document store). All secrets are
   # referenced from Secret Manager by name; the values are never in this file.
+  #
+  # CORS_ORIGINS deliberately lists ONLY the deployed frontend origin. Two
+  # constraints meet here:
+  #   * `--set-env-vars` is comma-delimited, so a multi-origin value would be
+  #     parsed as extra env vars. Use the `^@^` delimiter form if a second
+  #     production origin is ever genuinely needed.
+  #   * localhost belongs to local dev, which reads the default in
+  #     backend/config.py and never touches this deployment.
+  # A wildcard is not an option: the API sends Access-Control-Allow-Credentials,
+  # which browsers refuse to honour alongside `*`.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:

@@ -176,6 +176,23 @@ app.include_router(fhir_router, prefix="/api/v1", tags=["fhir"])
 app.include_router(stream_router, prefix="/api/v1", tags=["stream"])
 
 
+@app.get("/", tags=["health"], include_in_schema=False)
+async def root():
+    """Service banner for the root path.
+
+    Cloud Run health probes and casual browser visits both land here; returning a
+    bare 404 made a perfectly healthy deployment look dead. Kept dependency-free
+    so it can never fail for a reason unrelated to the process being up.
+    """
+    return {
+        "status": "VaidyaAI API running",
+        "version": settings.VERSION,
+        "environment": settings.ENVIRONMENT,
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
 @app.get("/livez", tags=["health"])
 async def livez():
     """Liveness probe. Trivial and dependency-free so Cloud Run can distinguish

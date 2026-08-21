@@ -28,6 +28,13 @@ export interface LongitudinalTimelineItem {
   agents_involved: string[];
   status_variant: StatusVariant;
   status_label: string;
+  /**
+   * True for an encounter that was started but never signed off. Such records
+   * have empty vitals/assessment fields, so presenting them alongside finalized
+   * visits made an abandoned consultation look like a completed one with
+   * missing data. Hidden from the default timeline view unless opted in.
+   */
+  is_draft?: boolean;
   details?: Record<string, any>;
 }
 

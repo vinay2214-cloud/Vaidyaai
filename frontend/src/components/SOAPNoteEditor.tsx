@@ -135,6 +135,27 @@ export function SOAPNoteEditor({
     }
   }, [clinicId, consultation.consultation_id, subjective, objective, assessment, plan, onApproved, toast, transcriptVerified]);
 
+  /**
+   * A CRITICAL PrescriptionSafe finding that has not been overridden.
+   *
+   * Presentation only — every hard stop inside handleApprove is untouched and
+   * still authoritative. This exists because the approve button previously
+   * looked completely normal during a critical block: the clinician only
+   * discovered the block *after* clicking. Blocking must be visible before the
+   * click, not after it.
+   */
+  const isSafetyBlocked = Boolean(
+    safetyEvaluation && !safetyEvaluation.is_safe && !safetyEvaluation.overridden
+  );
+
+  const criticalWarnings: any[] = React.useMemo(
+    () =>
+      (safetyEvaluation?.warnings || []).filter(
+        (w: any) => w?.severity === "CRITICAL" || w?.severity === "HIGH"
+      ),
+    [safetyEvaluation]
+  );
+
   const handleApprove = useCallback(() => {
     if (!clinicId) return;
 
@@ -322,6 +343,29 @@ export function SOAPNoteEditor({
                 <Printer className="w-4 h-4" /> Download PDF Prescription
               </button>
             </>
+          ) : isSafetyBlocked ? (
+            /* Approval is genuinely unavailable here: greyed out and inert.
+               The override path stays reachable through its own explicit,
+               separately-labelled control so the documented clinical override
+               is never removed — only made deliberate. */
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                title="Blocked by PrescriptionSafe — resolve or override the safety finding first"
+                className="text-xs flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border bg-background-elevated text-foreground-subtle opacity-50 cursor-not-allowed"
+              >
+                <ShieldAlert className="w-4 h-4" /> Approval Blocked
+              </button>
+              <button
+                type="button"
+                onClick={handleApprove}
+                className="text-xs font-bold flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/50 text-red-200 transition-colors focus-ring animate-safety-alert"
+              >
+                <AlertOctagon className="w-4 h-4" /> Review Safety Block
+              </button>
+            </div>
           ) : (
             <button
               onClick={handleApprove}
@@ -333,6 +377,41 @@ export function SOAPNoteEditor({
           )}
         </div>
       </div>
+
+      {/* Visually undeniable blocked-state banner. Sits immediately below the
+          action bar so it is impossible to miss while reading the note. */}
+      {!approved && isSafetyBlocked && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="p-4 rounded-xl border-2 border-red-500/60 bg-red-500/10 space-y-2.5 animate-safety-alert"
+        >
+          <div className="flex items-center gap-2">
+            <AlertOctagon className="w-5 h-5 text-red-400 shrink-0" aria-hidden="true" />
+            <h4 className="text-sm font-bold text-red-200">
+              Prescription blocked by PrescriptionSafe
+            </h4>
+          </div>
+          <p className="text-xs text-red-100/90 leading-relaxed">
+            {safetyEvaluation?.safety_summary ||
+              "A drug interaction or allergy conflict was detected in this prescription."}{" "}
+            Approval is disabled until this is resolved or a clinical override is recorded.
+          </p>
+          {criticalWarnings.length > 0 && (
+            <ul className="space-y-1 pt-0.5">
+              {criticalWarnings.slice(0, 4).map((w: any, i: number) => (
+                <li key={i} className="flex items-start gap-1.5 text-xs text-red-100">
+                  <span className="text-red-400 mt-0.5 shrink-0" aria-hidden="true">•</span>
+                  <span>
+                    <span className="font-bold">[{w.severity}]</span> {w.type}
+                    {w.message ? ` — ${w.message}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* STT Confidence / Transcription Quality Alert Banner */}
       {(consultation as any).scribe_metadata?.confidence_warning && (

@@ -193,7 +193,10 @@ async def create_walk_in_appointment(
         "booked_by": "walk_in",
         "queue_number": queue_number,
         "vitals": req.vitals or {},
-        "created_at": now_utc
+        "created_at": now_utc,
+        # A walk-in is physically present the moment it is created, so the
+        # waiting-room clock starts now rather than on a later status change.
+        "arrived_at": now_utc
     }
     await set_document("appointments", app_id, appointment_data)
 
@@ -257,13 +260,26 @@ async def update_appointment_status(
     if appointment.get("clinic_id") != req.clinic_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    now = datetime.now(timezone.utc)
     update_payload: Dict[str, Any] = {
         "status": req.status,
-        "updated_at": datetime.now(timezone.utc)
+        "updated_at": now
     }
 
+    # Stamp the moment the patient physically arrived. `created_at` is the
+    # *booking* time, which for a WhatsApp booking can be days earlier, so it
+    # cannot be used to work out how long someone has been sitting in the
+    # waiting room. Only set once: re-arriving must not reset the clock.
+    if req.status == "arrived" and not appointment.get("arrived_at"):
+        update_payload["arrived_at"] = now
+
+    # Consultation start ends the wait; recording it lets the queue show a
+    # settled wait time on in-progress and completed rows.
+    if req.status == "in_progress" and not appointment.get("consultation_started_at"):
+        update_payload["consultation_started_at"] = now
+
     if req.status == "cancelled":
-        update_payload["cancelled_at"] = datetime.now(timezone.utc)
+        update_payload["cancelled_at"] = now
         if req.cancel_reason:
             update_payload["cancel_reason"] = req.cancel_reason
             

@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { TimelineEntry, LongitudinalTimelineItem } from "./TimelineEntry";
 import { EmptyState, Panel, SectionHeader, Badge } from "@/components/design-system";
-import { Activity, Filter } from "lucide-react";
+import { Activity, Filter, EyeOff } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 interface ClinicalTimelineProps {
@@ -15,11 +15,20 @@ const filters = ["ALL", "consultation", "prescription", "referral", "billing"];
 
 export const ClinicalTimeline: React.FC<ClinicalTimelineProps> = ({ items, className }) => {
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
+  const [showDrafts, setShowDrafts] = useState(false);
+
+  const draftCount = items.filter((item) => item.is_draft).length;
 
   const filteredItems = items.filter((item) => {
+    // Unfinalized encounters are excluded by default: their vitals and
+    // assessment fields are empty, so showing them inline misrepresents the
+    // patient's clinical history.
+    if (item.is_draft && !showDrafts) return false;
     if (typeFilter === "ALL") return true;
     return item.type === typeFilter.toLowerCase();
   });
+
+  const finalizedCount = items.length - draftCount;
 
   return (
     <Panel className={cn(className)} padding="md">
@@ -39,12 +48,28 @@ export const ClinicalTimeline: React.FC<ClinicalTimelineProps> = ({ items, class
                     : "bg-background-elevated text-foreground-subtle border-border hover:border-border-strong"
                 )}
               >
-                {f === "ALL" ? `All (${items.length})` : f.charAt(0).toUpperCase() + f.slice(1)}
+                {f === "ALL"
+                  ? `All (${showDrafts ? items.length : finalizedCount})`
+                  : f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
           </div>
         }
       />
+
+      {draftCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowDrafts((v) => !v)}
+          className="mt-3 flex items-center gap-2 text-xs text-amber-300 hover:text-amber-200 focus-ring rounded-lg px-2 py-1.5 bg-amber-500/10 border border-amber-500/30 transition-colors"
+          aria-pressed={showDrafts}
+        >
+          <EyeOff className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          {showDrafts
+            ? `Hide ${draftCount} incomplete ${draftCount === 1 ? "encounter" : "encounters"}`
+            : `${draftCount} incomplete ${draftCount === 1 ? "encounter is" : "encounters are"} hidden — show`}
+        </button>
+      )}
 
       {filteredItems.length === 0 ? (
         <div className="mt-4">

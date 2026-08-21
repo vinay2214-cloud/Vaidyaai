@@ -2,8 +2,21 @@
 
 import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { apiErrorMessage } from "@/lib/errors";
 import { useClinicStore } from "@/store/clinicStore";
-import { useToast, Panel, SectionHeader, Badge, ActivityFeed, ActivityItem, AIStatus, Button } from "@/components/design-system";
+import {
+  useToast,
+  Panel,
+  SectionHeader,
+  Badge,
+  ActivityFeed,
+  ActivityItem,
+  AIStatus,
+  Button,
+  SkeletonStatTile,
+  SkeletonChart,
+} from "@/components/design-system";
+import { ErrorState } from "@/components/shared/ErrorState";
 import { cn } from "@/lib/cn";
 import {
   BarChart3,
@@ -73,7 +86,7 @@ export default function AnalyticsManagerPage() {
       if (res.data) setBackendMetrics(res.data);
     } catch (e: any) {
       console.warn("Could not load backend analytics:", e);
-      setError("Analytics backend sync temporarily unavailable.");
+      setError(apiErrorMessage(e, "load practice analytics"));
     } finally {
       setLoading(false);
     }
@@ -136,7 +149,7 @@ export default function AnalyticsManagerPage() {
       toast("InsightEngine executive report generated successfully.", "success");
       if (res.data) setBackendMetrics(res.data);
     } catch (e) {
-      toast("Report generation failed — could not reach the InsightEngine service.", "error");
+      toast(apiErrorMessage(e, "generate the practice report"), "error", "ai");
     } finally {
       setIsGenerating(false);
     }
@@ -153,13 +166,39 @@ export default function AnalyticsManagerPage() {
     toast("Analytics report exported as JSON.", "success");
   };
 
-  if (loading) {
+  if (loading && !backendMetrics) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <BarChart3 className="w-10 h-10 text-teal-400 animate-pulse" />
-          <p className="text-foreground-muted text-sm font-medium">Loading practice intelligence...</p>
+      <div className="space-y-5" role="status" aria-label="Loading practice intelligence">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 animate-pulse">
+          <div className="space-y-2">
+            <div className="h-6 w-64 bg-background-input rounded" />
+            <div className="h-4 w-48 bg-background-input/50 rounded" />
+          </div>
+          <div className="h-9 w-40 bg-background-input/60 rounded-xl" />
         </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => (
+            <SkeletonStatTile key={i} />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <SkeletonChart />
+          <SkeletonChart />
+        </div>
+      </div>
+    );
+  }
+
+  // The error was previously tracked in state but never rendered, so a failed
+  // analytics sync showed an empty dashboard indistinguishable from a quiet day.
+  if (error && !backendMetrics) {
+    return (
+      <div className="py-10">
+        <ErrorState
+          title="Unable to Load Practice Analytics"
+          description={error}
+          onRetry={fetchAnalytics}
+        />
       </div>
     );
   }

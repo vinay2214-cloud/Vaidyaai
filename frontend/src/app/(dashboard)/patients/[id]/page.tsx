@@ -274,8 +274,13 @@ export default function LongitudinalPatientRecordPage() {
       summary: c.soap_note?.assessment || "Outpatient encounter documented.",
       clinician: "Attending Clinician",
       agents_involved: ["ClinicalScribe", "PrescriptionSafe", "BillingPulse"],
-      status_variant: c.status === "approved" ? ("completed" as const) : ("info" as const),
-      status_label: c.status === "approved" ? "Approved" : "Documented",
+      // A consultation is "draft" from the moment it starts until sign-off, so
+      // anything not approved is an unfinalized record — previously labelled
+      // "Documented", which read as complete while every detail below said
+      // "Not recorded".
+      status_variant: c.status === "approved" ? ("completed" as const) : ("warning" as const),
+      status_label: c.status === "approved" ? "Approved" : "Incomplete — not finalized",
+      is_draft: c.status !== "approved",
       details: {
         vitals: c.vitals?.bp ? `BP: ${c.vitals.bp}, HR: ${c.vitals.pulse}` : "Not recorded",
         diagnoses: c.diagnoses?.map((d: any) => d.description || d.code).join(", ") || "None recorded",

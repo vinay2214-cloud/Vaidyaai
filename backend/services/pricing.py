@@ -12,7 +12,20 @@ from typing import Dict, Any, Optional
 # estimate and the invoice alike.
 PER_MEDICATION_PAISE = 2500      # ₹25 per medication
 PER_INVESTIGATION_PAISE = 15000  # ₹150 per investigation
-TAX_RATE = 0.18                  # 18% GST
+
+# GST on outpatient consultations: EXEMPT.
+#
+# Healthcare services provided by a clinical establishment or an authorised
+# medical practitioner are exempt from GST under Notification 12/2017-Central
+# Tax (Rate). VaidyaAI bills individual medical consultations, so charging 18%
+# GST was both legally wrong and immediately obvious to any Indian clinician
+# reading an invoice.
+#
+# The field is retained (rather than removed) so invoice payloads, stored
+# records and the API contract keep their shape; it simply evaluates to zero.
+# A clinic that additionally runs a taxable in-house pharmacy would need a
+# separate line item, not a blanket rate applied to the consultation subtotal.
+TAX_RATE = 0.0
 
 # Canonical fallback base fees (paise) when a clinic has no configured fees.
 DEFAULT_FEES = {
@@ -50,7 +63,7 @@ def calculate_consultation_fee(
     investigation_paise = int(investigation_count) * PER_INVESTIGATION_PAISE
     adjustments_paise = medication_paise + investigation_paise
     subtotal_paise = base_paise + adjustments_paise
-    tax_paise = round(subtotal_paise * TAX_RATE)
+    tax_paise = round(subtotal_paise * TAX_RATE)  # 0 while consultations are GST-exempt
     total_paise = max(0, subtotal_paise + tax_paise - int(discount_paise))
 
     return {

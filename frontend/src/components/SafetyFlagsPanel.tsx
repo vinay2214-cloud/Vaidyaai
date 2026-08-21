@@ -114,22 +114,32 @@ export function SafetyFlagsPanel({
     LOW: { variant: "blue", icon: ShieldAlert, text: "text-blue-400" },
   };
 
-  const panelBorder = evaluation.is_safe || evaluation.overridden ? "border-green-500/30" : "border-red-500/30";
+  // A pass and an un-overridden block must not look like variations of the same
+  // card. Pass is calm and green; block is heavy, red, and animated so it
+  // cannot be skimmed past.
+  const isBlocking = !evaluation.is_safe && !evaluation.overridden;
+  const panelBorder = isBlocking ? "border-2 border-red-500/60 animate-safety-alert" : "border border-green-500/30";
 
   return (
-    <Panel padding="md" className={cn("border", panelBorder)}>
+    <Panel padding="md" className={cn(panelBorder)} role={isBlocking ? "alert" : undefined}>
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           {evaluation.is_safe ? (
-            <ShieldCheck className="w-5 h-5 text-green-400" />
+            <ShieldCheck className="w-5 h-5 text-green-400 animate-check-pop" aria-hidden="true" />
           ) : (
-            <ShieldAlert className="w-5 h-5 text-red-400" />
+            <ShieldAlert className="w-5 h-5 text-red-400" aria-hidden="true" />
           )}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">
               PrescriptionSafe Audit
             </h4>
-            <p className="text-xs text-foreground-subtle">{evaluation.warnings_count} warnings</p>
+            <p className={cn("text-xs", isBlocking ? "text-red-300 font-semibold" : "text-foreground-subtle")}>
+              {evaluation.is_safe
+                ? evaluation.warnings_count === 0
+                  ? "No interactions detected"
+                  : `Cleared with ${evaluation.warnings_count} advisory ${evaluation.warnings_count === 1 ? "note" : "notes"}`
+                : `${evaluation.warnings_count} ${evaluation.warnings_count === 1 ? "warning" : "warnings"} — approval blocked`}
+            </p>
           </div>
         </div>
         {evaluation.overridden && (

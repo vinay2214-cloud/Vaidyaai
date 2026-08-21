@@ -914,10 +914,22 @@ export function ConsultationWorkspace({
                     <span className="text-foreground-subtle">Investigations ({estimate.invCount})</span>
                     <span className="text-foreground tnum">{formatCurrency(estimate.invAmount)}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-foreground-subtle">GST (18%)</span>
-                    <span className="text-foreground tnum">{formatCurrency(estimate.tax)}</span>
-                  </div>
+                  {/* Outpatient medical consultations are GST-exempt under
+                      Notification 12/2017-Central Tax (Rate). The line is shown
+                      as an explicit zero rather than omitted, so the doctor can
+                      see the exemption was applied deliberately. If a clinic
+                      ever bills a taxable item, the non-zero branch renders. */}
+                  {estimate.tax > 0 ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-foreground-subtle">Tax</span>
+                      <span className="text-foreground tnum">{formatCurrency(estimate.tax)}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="text-foreground-subtle">GST</span>
+                      <span className="text-foreground-subtle text-xs">Exempt — medical consultation</span>
+                    </div>
+                  )}
                   <div className="border-t border-border pt-2.5 flex items-center justify-between text-base font-semibold">
                     <span className="text-foreground">Total</span>
                     <span className="text-teal-400 tnum">{formatCurrency(estimate.total)}</span>

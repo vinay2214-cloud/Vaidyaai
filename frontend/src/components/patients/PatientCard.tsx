@@ -4,7 +4,7 @@ import { RiskBadge } from "./RiskBadge";
 import { ConsentBadge } from "./ConsentBadge";
 import { ClinicalIndicator } from "./ClinicalIndicator";
 import { PatientQuickActions } from "./PatientQuickActions";
-import { MapPin, Calendar, Activity, Clock } from "lucide-react";
+import { MapPin, Calendar, Activity, Clock, AlertOctagon } from "lucide-react";
 import clsx from "clsx";
 
 export interface PatientData {
@@ -42,6 +42,15 @@ export const PatientCard: React.FC<PatientCardProps> = ({
 }) => {
   const isHighRisk = patient.risk_level === "CRITICAL" || patient.risk_level === "HIGH";
 
+  // "No Known Drug Allergies" and equivalents are a *cleared* review, not an
+  // alert. Treating them as one would train the doctor to ignore the banner.
+  const activeAllergies = (patient.allergies || []).filter(
+    (a) => a && !/^\s*(nkda|no known|none)/i.test(a)
+  );
+  const activeChronic = (patient.chronic_diseases || []).filter(
+    (c) => c && !/^\s*(none|no chronic)/i.test(c)
+  );
+
   return (
     <div
       className={clsx(
@@ -72,6 +81,23 @@ export const PatientCard: React.FC<PatientCardProps> = ({
               {patient.risk_level && <RiskBadge level={patient.risk_level} />}
               {patient.consent_status && patient.consent_status !== "granted" && <ConsentBadge status={patient.consent_status} />}
             </div>
+
+            {/* The single most clinically relevant fact, placed above
+                demographics. A doctor scanning a list is asking "who has a
+                penicillin allergy", not "who is 34". Only a genuine allergy
+                qualifies — an explicit NKDA record is reassurance, not an
+                alert, and belongs with the other clinical indicators below. */}
+            {activeAllergies.length > 0 ? (
+              <p className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/40 text-rose-200 text-xs font-bold">
+                <AlertOctagon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">Allergy: {activeAllergies.join(", ")}</span>
+              </p>
+            ) : activeChronic.length > 0 ? (
+              <p className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs font-semibold">
+                <Activity className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{activeChronic.join(", ")}</span>
+              </p>
+            ) : null}
 
             <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-2 flex-wrap">
               <span className="font-mono text-slate-300 tnum">{patient.patient_phone_masked}</span>

@@ -5,6 +5,7 @@ import { Mic, Square, Loader2, Sparkles, Trash2 } from "lucide-react";
 import api from "@/lib/api";
 import { useClinicStore } from "@/store/clinicStore";
 import { useToast } from "@/components/design-system";
+import { TranscriptionProgress } from "@/components/consultation/TranscriptionProgress";
 
 export function ConsultationRecorder({
   consultationId,
@@ -185,8 +186,14 @@ export function ConsultationRecorder({
         </button>
       ) : recording ? (
         <div className="w-full flex flex-col items-center gap-3">
-          <div className="flex items-center gap-2 text-red-400 font-mono text-sm animate-pulse">
-            <span className="w-3 h-3 bg-red-500 rounded-full"></span> Live Audio Ambient Recording Active ({chunkPaths.length} Chunks Uploaded)
+          {/* A breathing dot with an expanding ring: at a glance this is a live
+              microphone, not a status label that happens to be red. */}
+          <div className="flex items-center gap-2.5 text-red-400 font-mono text-sm" role="status" aria-live="polite">
+            <span className="relative flex items-center justify-center w-3 h-3 shrink-0">
+              <span className="absolute inline-flex w-3 h-3 rounded-full bg-red-500/60 animate-breathe-ring" aria-hidden="true" />
+              <span className="relative inline-flex w-3 h-3 rounded-full bg-red-500 animate-breathe" aria-hidden="true" />
+            </span>
+            Live Audio Ambient Recording Active ({chunkPaths.length} Chunks Uploaded)
           </div>
           <button
             onClick={stopRecordingAndTranscribe}
@@ -196,10 +203,7 @@ export function ConsultationRecorder({
           </button>
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-3 py-4 text-teal-400 font-medium">
-          <Loader2 className="w-8 h-8 animate-spin" />
-          <p className="text-sm">Processing audio, running Speech-to-Text & Clinical AI SOAP generation...</p>
-        </div>
+        <TranscriptionProgress />
       )}
 
       <p className="text-xs text-foreground-subtle text-center max-w-sm">

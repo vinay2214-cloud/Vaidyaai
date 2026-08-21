@@ -3,7 +3,21 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useClinicStore } from "@/store/clinicStore";
 import { useBilling } from "@/hooks/useBilling";
-import { useToast, Panel, SectionHeader, Badge, ActivityFeed, ActivityItem, AIStatus, Button, PatientAvatar } from "@/components/design-system";
+import {
+  useToast,
+  Panel,
+  SectionHeader,
+  Badge,
+  ActivityFeed,
+  ActivityItem,
+  AIStatus,
+  Button,
+  PatientAvatar,
+  SkeletonStatTile,
+  SkeletonTable,
+  SkeletonCard,
+} from "@/components/design-system";
+import { ErrorState } from "@/components/shared/ErrorState";
 import { cn } from "@/lib/cn";
 import {
   Receipt,
@@ -28,6 +42,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import api from "@/lib/api";
+import { apiErrorMessage } from "@/lib/errors";
 import { BACKEND_URL } from "@/lib/constants";
 
 function formatCurrency(n: number) {
@@ -351,7 +366,7 @@ function PaymentModal({
 
 export default function BillingWorkflowPage() {
   const clinicId = useClinicStore((state) => state.clinicId);
-  const { summary, loading: summaryLoading, refresh: refreshBilling } = useBilling();
+  const { summary, loading: summaryLoading, error: summaryError, refresh: refreshBilling } = useBilling();
   const { toast } = useToast();
   const [filter, setFilter] = useState<"all" | "pending" | "paid">("all");
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
@@ -400,7 +415,7 @@ export default function BillingWorkflowPage() {
       await refreshBilling();
     } catch (e) {
       console.error("Payment error:", e);
-      toast("Payment confirmation failed.", "error");
+      toast(apiErrorMessage(e, "confirm this payment"), "error", "billing");
     }
   };
 
@@ -417,7 +432,7 @@ export default function BillingWorkflowPage() {
       return res.data;
     } catch (e) {
       console.error("WhatsApp error:", e);
-      toast("WhatsApp action failed.", "error");
+      toast(apiErrorMessage(e, `send this invoice over WhatsApp`), "error", "communication");
     }
   };
 
@@ -434,13 +449,44 @@ export default function BillingWorkflowPage() {
     }));
   }, [rawInvoices]);
 
-  if (summaryLoading) {
+  // First load only. Once figures are on screen the 15s poll refreshes them in
+  // place rather than tearing the page down to a spinner every fifteen seconds.
+  if (summaryLoading && !summary) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Receipt className="w-10 h-10 text-orange-400 animate-pulse" />
-          <p className="text-foreground-muted text-sm font-medium">Loading BillingPulse workflow...</p>
+      <div className="space-y-5" role="status" aria-label="Loading billing workflow">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 animate-pulse">
+          <div className="space-y-2">
+            <div className="h-6 w-72 bg-background-input rounded" />
+            <div className="h-4 w-56 bg-background-input/50 rounded" />
+          </div>
+          <div className="h-9 w-32 bg-background-input/60 rounded-xl" />
         </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => (
+            <SkeletonStatTile key={i} />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className="lg:col-span-8">
+            <SkeletonTable rows={6} />
+          </div>
+          <div className="lg:col-span-4 space-y-4">
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (summaryError && !summary) {
+    return (
+      <div className="py-10">
+        <ErrorState
+          title="Unable to Load Billing"
+          description={summaryError}
+          onRetry={refreshBilling}
+        />
       </div>
     );
   }

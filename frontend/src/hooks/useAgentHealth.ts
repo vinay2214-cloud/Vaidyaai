@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import api from '../lib/api';
 import { useClinicStore } from '../store/clinicStore';
+import { apiErrorMessage } from '../lib/errors';
 
 export interface AgentHealthData {
   id: string;
@@ -31,6 +32,7 @@ export function useAgentHealth() {
   const [agents, setAgents] = useState<AgentHealthData[]>([]);
   const [platform, setPlatform] = useState<PlatformHealth | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   const refresh = useCallback(async () => {
     if (!clinicId) return;
@@ -41,9 +43,11 @@ export function useAgentHealth() {
       if (response.data) {
         setAgents(response.data.agents || []);
         setPlatform(response.data.platform || null);
+        setError(null);
       }
-    } catch (error) {
-      console.error('Failed to fetch agent health:', error);
+    } catch (e) {
+      console.error('Failed to fetch agent health:', e);
+      setError(apiErrorMessage(e, 'load agent telemetry'));
     } finally {
       setLoading(false);
     }
@@ -60,5 +64,5 @@ export function useAgentHealth() {
     return () => clearInterval(interval);
   }, [refresh]);
   
-  return { agents, platform, loading, refresh };
+  return { agents, platform, loading, error, refresh };
 }

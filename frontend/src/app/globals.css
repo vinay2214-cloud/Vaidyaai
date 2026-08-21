@@ -194,3 +194,73 @@ body {
 .toast-container {
   @apply fixed bottom-4 right-4 z-[100] flex flex-col gap-2;
 }
+
+/* ── Clinical state animations ─────────────────────────────────────────────
+   Motion is used sparingly and only where it carries clinical meaning:
+   a live microphone, and a safety block that must not be scrolled past.
+   All three respect prefers-reduced-motion. */
+
+/* Safety block: a short red shake, then a sustained glow. The shake fires once
+   so it reads as an interruption rather than decoration. */
+.animate-safety-alert {
+  animation: safetyShake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) 1,
+             safetyGlow 2.2s ease-in-out 0.4s infinite;
+}
+
+@keyframes safetyShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+@keyframes safetyGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+/* Recording: a breathing ring around the live-capture dot. Deliberately slower
+   than Tailwind's animate-pulse so it reads as respiration, not a blink. */
+.animate-breathe {
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.18); opacity: 0.65; }
+}
+
+.animate-breathe-ring {
+  animation: breatheRing 1.8s ease-out infinite;
+}
+
+@keyframes breatheRing {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  70% { transform: scale(2.1); opacity: 0; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+/* Success: a brief confirming pop on a passed safety check. */
+.animate-check-pop {
+  animation: checkPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+}
+
+@keyframes checkPop {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-safety-alert,
+  .animate-breathe,
+  .animate-breathe-ring,
+  .animate-check-pop {
+    animation: none;
+  }
+  /* Keep the safety block visually distinct without motion. */
+  .animate-safety-alert {
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
+  }
+}

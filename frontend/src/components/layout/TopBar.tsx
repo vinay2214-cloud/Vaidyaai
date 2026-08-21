@@ -10,6 +10,7 @@ import { Search, Bell, Command, Activity, LogOut, User } from "lucide-react";
 import { logout } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/design-system";
+import { formatDoctorName } from "@/lib/formatName";
 
 interface TopBarProps {
   onSearchOpen: () => void;
@@ -47,7 +48,7 @@ export function TopBar({ onSearchOpen, notificationCount = 0 }: TopBarProps) {
         <div className="hidden lg:flex items-center gap-4 text-xs">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-background-elevated rounded-lg border border-border">
             <User className="w-3.5 h-3.5 text-foreground-muted" />
-            <span className="text-foreground font-medium">{doctorName ? (doctorName.trim().toLowerCase().startsWith("dr") ? doctorName : `Dr. ${doctorName}`) : "Doctor"}</span>
+            <span className="text-foreground font-medium">{formatDoctorName(doctorName)}</span>
           </div>
           {currentPatientId && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-teal-500/10 rounded-lg border border-teal-500/30">

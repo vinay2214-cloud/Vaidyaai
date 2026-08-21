@@ -9,4 +9,12 @@ export { ActivityFeed, type ActivityItem } from "./ActivityFeed";
 export { PatientAvatar } from "./PatientAvatar";
 export { RiskBadge } from "./RiskBadge";
 export { SectionHeader } from "./SectionHeader";
-export { SkeletonCard, SkeletonTable, SkeletonChart } from "./Skeletons";
+export {
+  SkeletonCard,
+  SkeletonTable,
+  SkeletonChart,
+  SkeletonQueueRow,
+  SkeletonQueueSection,
+  SkeletonStatTile,
+  SkeletonFeed,
+} from "./Skeletons";

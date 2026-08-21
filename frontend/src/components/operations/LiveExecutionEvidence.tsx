@@ -101,13 +101,13 @@ export function LiveExecutionEvidence({
   const executedModel = status.last_live_model || status.reasoning_model;
   const executedRegion = status.last_live_location || status.reasoning_location;
   const latency =
-    status.last_live_latency_ms != null ? `${Math.round(status.last_live_latency_ms)}ms` : "awaiting first call";
+    status.last_live_latency_ms != null ? `${Math.round(status.last_live_latency_ms)}ms` : "—";
 
   const badgeLabel = isLiveVerified
     ? "Live & Verified"
     : isConfigured
-    ? "Live — awaiting first execution"
-    : "Mock fallback permitted";
+    ? "Awaiting first call"
+    : "Mock fallback on";
 
   const badgeTone = isLiveVerified
     ? "bg-teal-500/10 text-teal-300 border-teal-500/30"
@@ -117,7 +117,7 @@ export function LiveExecutionEvidence({
 
   return (
     <div className={cn("rounded-xl border border-border bg-background-elevated p-3 space-y-2.5", className)}>
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <span className="text-xs font-bold uppercase tracking-wider text-foreground-subtle">AI Execution</span>
         <span
           className={cn(

@@ -339,14 +339,29 @@ async def export_consultation_to_fhir(consultation, patient, clinic):
             dosage=m.get("dosage"), frequency=m.get("frequency"), route=m.get("route")))
 
     vitals = consultation.get("vitals", {}) or {}
+    # Each entry lists every key the vitals payload may use, most-canonical first.
+    #
+    # The consultation workspace writes vitals as bp / pulse / temp / spo2 /
+    # weight / resp_rate (see ConsultationWorkspace.tsx). This mapping previously
+    # looked only for blood_pressure / heart_rate / temperature, so three of the
+    # four observations silently dropped out of every FHIR export produced from a
+    # real consultation — the bundle looked well-formed while omitting most of
+    # the recorded vitals. Accept both spellings.
     vital_mappings = [
-        ("temperature", "Body temperature", "8310-5"),
-        ("blood_pressure", "Blood pressure", "85354-9"),
-        ("heart_rate", "Heart rate", "8867-4"),
-        ("spo2", "Oxygen saturation", "2708-6"),
+        (("temp", "temperature"), "Body temperature", "8310-5"),
+        (("bp", "blood_pressure"), "Blood pressure", "85354-9"),
+        (("pulse", "heart_rate"), "Heart rate", "8867-4"),
+        (("spo2", "oxygen_saturation"), "Oxygen saturation", "2708-6"),
+        (("weight", "body_weight"), "Body weight", "29463-7"),
+        (("resp_rate", "respiratory_rate"), "Respiratory rate", "9279-1"),
     ]
-    for i, (key, display, loinc) in enumerate(vital_mappings):
-        val = vitals.get(key) if isinstance(vitals, dict) else None
+    for i, (keys, display, loinc) in enumerate(vital_mappings):
+        val = None
+        if isinstance(vitals, dict):
+            for key in keys:
+                if vitals.get(key):
+                    val = vitals[key]
+                    break
         if val:
             resources.append(fhir_observation(
                 observation_id=f"obs_{consultation_id}_{i}", patient_id=patient_id,

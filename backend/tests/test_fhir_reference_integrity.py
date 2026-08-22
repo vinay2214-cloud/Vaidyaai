@@ -164,3 +164,65 @@ async def test_consultation_bundle_includes_patient_level_allergy():
     bundle = await export_consultation_to_fhir(_consultation(), patient, CLINIC)
     assert "Penicillin" in _allergen_names(bundle)
     assert_bundle_references_resolve(bundle)
+
+
+# ─── Vitals key mapping regression ────────────────────────────────────────────
+
+def test_fhir_export_captures_vitals_written_by_the_consultation_workspace():
+    """FHIR export must read the vitals keys the app actually writes.
+
+    ConsultationWorkspace.tsx persists vitals as bp / pulse / temp / spo2 /
+    weight / resp_rate. The export previously looked for blood_pressure /
+    heart_rate / temperature only, so a real consultation produced a bundle
+    missing three of its four recorded observations while still looking
+    structurally valid.
+    """
+    import asyncio
+    from integrations.fhir_r4 import export_consultation_to_fhir
+
+    consultation = {
+        "consultation_id": "cons_vitals_map",
+        "clinic_id": "cln_test",
+        "patient_id": "pat_test",
+        "status": "approved",
+        "vitals": {
+            "bp": "128/82",
+            "pulse": "76",
+            "temp": "98.4",
+            "spo2": "98",
+            "weight": "68",
+        },
+    }
+    patient = {"name": "Test Patient", "phone": "+919999999999", "gender": "F", "age": 41}
+    clinic = {"name": "Test Clinic", "doctor_name": "Dr. Test"}
+
+    bundle = asyncio.run(export_consultation_to_fhir(consultation, patient, clinic))
+    observations = [
+        e["resource"] for e in bundle["entry"]
+        if e["resource"]["resourceType"] == "Observation"
+    ]
+    captured = {o["code"]["coding"][0]["display"] for o in observations}
+
+    for expected in ["Blood pressure", "Heart rate", "Body temperature", "Oxygen saturation"]:
+        assert expected in captured, f"{expected} missing from bundle; got {captured}"
+
+
+def test_legacy_vitals_key_spellings_still_map():
+    """Records written with the older key names must not regress."""
+    import asyncio
+    from integrations.fhir_r4 import export_consultation_to_fhir
+
+    consultation = {
+        "consultation_id": "cons_vitals_legacy",
+        "clinic_id": "cln_test",
+        "patient_id": "pat_test",
+        "status": "approved",
+        "vitals": {"blood_pressure": "120/80", "heart_rate": "70", "temperature": "98.6"},
+    }
+    bundle = asyncio.run(export_consultation_to_fhir(
+        consultation, {"name": "T"}, {"name": "C", "doctor_name": "D"}))
+    captured = {
+        e["resource"]["code"]["coding"][0]["display"]
+        for e in bundle["entry"] if e["resource"]["resourceType"] == "Observation"
+    }
+    assert {"Blood pressure", "Heart rate", "Body temperature"} <= captured

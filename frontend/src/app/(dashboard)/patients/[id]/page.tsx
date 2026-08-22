@@ -16,6 +16,7 @@ import { MedicationCard, MedicationItem } from "@/components/patient-detail/Medi
 import { LabCard, LabItem } from "@/components/patient-detail/LabCard";
 import { ReferralCard, ReferralItem } from "@/components/patient-detail/ReferralCard";
 import { RetentionCard, RetentionOutreachItem } from "@/components/patient-detail/RetentionCard";
+import { PatientBillingCard, PatientInvoiceItem } from "@/components/patient-detail/PatientBillingCard";
 import { DocumentCard, ClinicalDocument } from "@/components/patient-detail/DocumentCard";
 import { ClinicalTimeline } from "@/components/patient-detail/ClinicalTimeline";
 import { LongitudinalTimelineItem } from "@/components/patient-detail/TimelineEntry";
@@ -38,6 +39,7 @@ export default function LongitudinalPatientRecordPage() {
   const [loading, setLoading] = useState(true);
   const [patientData, setPatientData] = useState<any>(null);
   const [timelineData, setTimelineData] = useState<any[]>([]);
+  const [billingData, setBillingData] = useState<any>(null);
   const [showFHIRModal, setShowFHIRModal] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const { toast } = useToast();
@@ -50,9 +52,10 @@ export default function LongitudinalPatientRecordPage() {
       }
       try {
         setLoading(true);
-        const [patRes, tlRes] = await Promise.allSettled([
+        const [patRes, tlRes, billRes] = await Promise.allSettled([
           api.get(`/patients/${patientId}?clinic_id=${clinicId}`),
-          api.get(`/patients/${patientId}/timeline?clinic_id=${clinicId}`)
+          api.get(`/patients/${patientId}/timeline?clinic_id=${clinicId}`),
+          api.get(`/billing/patient/${patientId}?clinic_id=${clinicId}`)
         ]);
         if (patRes.status === "fulfilled" && patRes.value.data) {
           setPatientData(patRes.value.data);
@@ -63,6 +66,9 @@ export default function LongitudinalPatientRecordPage() {
             chronic_conditions: patRes.value.data.chronic_conditions || [],
             risk_level: patRes.value.data.risk_level,
           });
+        }
+        if (billRes.status === "fulfilled" && billRes.value.data) {
+          setBillingData(billRes.value.data);
         }
         if (tlRes.status === "fulfilled" && tlRes.value.data) {
           // The timeline endpoint returns an object {appointments, consultations,
@@ -240,6 +246,17 @@ export default function LongitudinalPatientRecordPage() {
       : "Not scheduled",
   }));
 
+  const patientInvoices: PatientInvoiceItem[] = (billingData?.invoices || []).map((i: any) => ({
+    invoice_id: i.invoice_id,
+    invoice_number: i.invoice_number,
+    amount_rupees: i.amount_rupees,
+    consultation_type: i.consultation_type,
+    status: i.status,
+    payment_method: i.payment_method,
+    created_at: i.created_at,
+    paid_at: i.paid_at,
+  }));
+
   const documents: ClinicalDocument[] = latestCons?.consultation_id ? [
     {
       id: `doc_${latestCons.consultation_id}`,
@@ -392,6 +409,13 @@ export default function LongitudinalPatientRecordPage() {
 
           {/* SECTION 9: Referrals */}
           <ReferralCard referrals={referrals} />
+
+          {/* Billing history for this patient, not just today's clinic-wide list */}
+          <PatientBillingCard
+            invoices={patientInvoices}
+            totalPaid={billingData?.total_paid_rupees || 0}
+            outstanding={billingData?.outstanding_rupees || 0}
+          />
 
           {/* SECTION 10: Retention History */}
           <RetentionCard history={retentionHistory} />

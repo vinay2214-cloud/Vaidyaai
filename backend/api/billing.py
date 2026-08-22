@@ -171,6 +171,66 @@ async def get_today_billing_summary(
         }
 
 
+@router.get("/billing/patient/{patient_id}", tags=["billing"])
+async def get_patient_billing_history(
+    patient_id: str,
+    clinic_id: str = Query(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    GET /api/v1/billing/patient/{patient_id}?clinic_id={id}
+
+    A patient's complete invoice history, newest first.
+
+    /billing/today is bounded to the current day, so a patient's past invoices
+    were not reachable from anywhere in the product: the profile's
+    "Billing & Invoices" control simply navigated to the clinic-wide page,
+    which showed only today. A clinician could not answer "has this patient
+    settled their previous visits?" without leaving the record.
+    """
+    verify_clinic_access(clinic_id, current_user)
+
+    async with AsyncSessionFactory() as db:
+        res = await db.execute(select(Clinic).where(Clinic.firebase_clinic_id == clinic_id))
+        clinic_obj = res.scalar_one_or_none()
+        if not clinic_obj:
+            return {"patient_id": patient_id, "invoice_count": 0, "invoices": []}
+
+        invoices_res = await db.execute(
+            select(Invoice).where(
+                Invoice.clinic_id == clinic_obj.id,
+                Invoice.patient_id == patient_id,
+            ).order_by(Invoice.created_at.desc())
+        )
+        invoices = invoices_res.scalars().all()
+
+        total_billed = sum(i.amount_paise for i in invoices) / 100.0
+        total_paid = sum(i.amount_paise for i in invoices if i.status == "paid") / 100.0
+        outstanding = sum(i.amount_paise for i in invoices if i.status != "paid") / 100.0
+
+        return {
+            "patient_id": patient_id,
+            "invoice_count": len(invoices),
+            "total_billed_rupees": total_billed,
+            "total_paid_rupees": total_paid,
+            "outstanding_rupees": outstanding,
+            "invoices": [
+                {
+                    "invoice_id": str(inv.id),
+                    "invoice_number": inv.invoice_number,
+                    "amount_rupees": inv.amount_paise / 100.0,
+                    "consultation_type": inv.consultation_type,
+                    "consultation_id": inv.consultation_firestore_id,
+                    "status": inv.status,
+                    "payment_method": inv.payment_method,
+                    "created_at": inv.created_at.isoformat() if inv.created_at else None,
+                    "paid_at": inv.paid_at.isoformat() if inv.paid_at else None,
+                }
+                for inv in invoices
+            ],
+        }
+
+
 @router.get("/billing/monthly", tags=["billing"])
 async def get_monthly_billing_summary(
     clinic_id: str = Query(...),

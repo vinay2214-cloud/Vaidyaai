@@ -226,3 +226,39 @@ def test_legacy_vitals_key_spellings_still_map():
         for e in bundle["entry"] if e["resource"]["resourceType"] == "Observation"
     }
     assert {"Blood pressure", "Heart rate", "Body temperature"} <= captured
+
+
+def test_ips_summary_includes_referrals_and_all_vitals():
+    """The patient-summary bundle must carry the same detail as a single export.
+
+    The IPS builder kept its own copy of the vitals mapping and ignored
+    consultation referrals entirely, so the longitudinal record a receiving
+    clinician is sent omitted most observations and every specialist hand-off.
+    """
+    import asyncio
+    from integrations.fhir_r4 import export_patient_summary_to_fhir
+
+    consultation = {
+        "consultation_id": "cons_ips_check",
+        "clinic_id": "cln_test",
+        "patient_id": "pat_test",
+        "status": "approved",
+        "review_status": "CONFIRMED",
+        "vitals": {"bp": "128/82", "pulse": "76", "temp": "98.4", "spo2": "98", "weight": "68"},
+        "referrals": [{"specialty": "Ophthalmology", "reason": "Retinopathy screening"}],
+        "diagnoses": [{"description": "Type 2 Diabetes Mellitus", "icd10_code": "E11.9"}],
+    }
+    patient = {"name": "Test Patient", "allergies": ["Sulfa drugs"]}
+    clinic = {"name": "Test Clinic", "doctor_name": "Dr. Test"}
+
+    bundle = asyncio.run(export_patient_summary_to_fhir(patient, [consultation], clinic))
+    by_type = {}
+    for entry in bundle["entry"]:
+        rt = entry["resource"]["resourceType"]
+        by_type.setdefault(rt, []).append(entry["resource"])
+
+    assert "ServiceRequest" in by_type, f"referral missing from IPS bundle: {list(by_type)}"
+
+    captured = {o["code"]["coding"][0]["display"] for o in by_type.get("Observation", [])}
+    for expected in ["Blood pressure", "Heart rate", "Body temperature", "Oxygen saturation"]:
+        assert expected in captured, f"{expected} missing from IPS bundle; got {captured}"

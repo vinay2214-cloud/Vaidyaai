@@ -23,6 +23,34 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Each entry lists every key the vitals payload may use, most-canonical first.
+#
+# The consultation workspace writes vitals as bp / pulse / temp / spo2 / weight /
+# resp_rate (see ConsultationWorkspace.tsx). Both exporters previously carried
+# their own hardcoded list looking only for blood_pressure / heart_rate /
+# temperature, so most recorded observations silently dropped out of every
+# bundle produced from a real consultation — well-formed, quietly incomplete.
+# Defined once here so the two exporters cannot drift apart again.
+VITAL_MAPPINGS = [
+    (("temp", "temperature"), "Body temperature", "8310-5"),
+    (("bp", "blood_pressure"), "Blood pressure", "85354-9"),
+    (("pulse", "heart_rate"), "Heart rate", "8867-4"),
+    (("spo2", "oxygen_saturation"), "Oxygen saturation", "2708-6"),
+    (("weight", "body_weight"), "Body weight", "29463-7"),
+    (("resp_rate", "respiratory_rate"), "Respiratory rate", "9279-1"),
+]
+
+
+def _vital_value(vitals: Any, keys) -> Optional[str]:
+    """First present value among the accepted spellings for one vital sign."""
+    if not isinstance(vitals, dict):
+        return None
+    for key in keys:
+        if vitals.get(key):
+            return vitals[key]
+    return None
+
+
 def _meta(profile: str) -> Dict[str, Any]:
     return {"profile": [f"{FHIR_R4}/{profile}"]}
 
@@ -339,29 +367,8 @@ async def export_consultation_to_fhir(consultation, patient, clinic):
             dosage=m.get("dosage"), frequency=m.get("frequency"), route=m.get("route")))
 
     vitals = consultation.get("vitals", {}) or {}
-    # Each entry lists every key the vitals payload may use, most-canonical first.
-    #
-    # The consultation workspace writes vitals as bp / pulse / temp / spo2 /
-    # weight / resp_rate (see ConsultationWorkspace.tsx). This mapping previously
-    # looked only for blood_pressure / heart_rate / temperature, so three of the
-    # four observations silently dropped out of every FHIR export produced from a
-    # real consultation — the bundle looked well-formed while omitting most of
-    # the recorded vitals. Accept both spellings.
-    vital_mappings = [
-        (("temp", "temperature"), "Body temperature", "8310-5"),
-        (("bp", "blood_pressure"), "Blood pressure", "85354-9"),
-        (("pulse", "heart_rate"), "Heart rate", "8867-4"),
-        (("spo2", "oxygen_saturation"), "Oxygen saturation", "2708-6"),
-        (("weight", "body_weight"), "Body weight", "29463-7"),
-        (("resp_rate", "respiratory_rate"), "Respiratory rate", "9279-1"),
-    ]
-    for i, (keys, display, loinc) in enumerate(vital_mappings):
-        val = None
-        if isinstance(vitals, dict):
-            for key in keys:
-                if vitals.get(key):
-                    val = vitals[key]
-                    break
+    for i, (keys, display, loinc) in enumerate(VITAL_MAPPINGS):
+        val = _vital_value(vitals, keys)
         if val:
             resources.append(fhir_observation(
                 observation_id=f"obs_{consultation_id}_{i}", patient_id=patient_id,
@@ -474,14 +481,22 @@ async def export_patient_summary_to_fhir(patient, consultations, clinic):
             section_refs["allergies"].append({"reference": f"AllergyIntolerance/allergy_{consultation_id}_{i}"})
             added_allergens.add(allergen.strip().lower())
 
+        # Referrals reach the summary as ServiceRequest resources. The IPS
+        # builder previously ignored consultation["referrals"] entirely, so a
+        # documented specialist hand-off was absent from the record a receiving
+        # clinician would actually be sent.
+        for i, ref in enumerate(consultation.get("referrals", [])):
+            r = ref if isinstance(ref, dict) else {"specialty": str(ref)}
+            sr = fhir_service_request(
+                service_request_id=f"svcreq_{consultation_id}_{i}", patient_id=patient_id,
+                encounter_id=consultation_id,
+                specialty=r.get("specialty") or r.get("speciality", ""),
+                reason=r.get("reason") or r.get("reason_for_referral"))
+            resources.append(sr)
+
         vitals = consultation.get("vitals", {}) or {}
-        for i, (key, display, loinc) in enumerate([
-            ("temperature", "Body temperature", "8310-5"),
-            ("blood_pressure", "Blood pressure", "85354-9"),
-            ("heart_rate", "Heart rate", "8867-4"),
-            ("spo2", "Oxygen saturation", "2708-6"),
-        ]):
-            val = vitals.get(key) if isinstance(vitals, dict) else None
+        for i, (keys, display, loinc) in enumerate(VITAL_MAPPINGS):
+            val = _vital_value(vitals, keys)
             if val:
                 obs = fhir_observation(
                     observation_id=f"obs_{consultation_id}_{i}", patient_id=patient_id,

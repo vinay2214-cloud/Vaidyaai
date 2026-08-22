@@ -24,7 +24,7 @@ production, so clinical output cannot quietly degrade to synthetic text.
 | **Backend API docs** | https://vaidyaai-backend-353775352272.asia-south1.run.app/docs |
 | **Service health** | https://vaidyaai-backend-353775352272.asia-south1.run.app/health |
 | **AI execution telemetry** | https://vaidyaai-backend-353775352272.asia-south1.run.app/api/v1/ai/live-status |
-| **Demo video** | _link pending — add before submission_ |
+| **Demo video** |https://youtu.be/q6UvraiMXeM |
 
 Both services are deployed on Google Cloud Run in `asia-south1`. Sign-in is Firebase phone auth.
 

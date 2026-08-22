@@ -265,7 +265,10 @@ def build_consultation(visit: dict, when: datetime) -> dict:
         "appointment_id": f"app_lp_v{visit['index']}",
         "patient_id": PATIENT_ID,
         "patient_allergies": ALLERGIES,
-        "allergy_review_status": "REVIEWED",
+        # Canonical values written by ClinicalScribe are
+        # REQUIRES_CLINICIAN_CONFIRMATION / NOT_DOCUMENTED. These allergies were
+        # confirmed with the patient at intake, so the requirement is discharged.
+        "allergy_review_status": "CONFIRMED",
         "allergy_alert": (
             "Documented sulfonamide allergy — sulfa-based agents contraindicated."
         ),
@@ -288,7 +291,11 @@ def build_consultation(visit: dict, when: datetime) -> dict:
         "grounding_requires_review": False,
         "ai_generated": False,
         "entry_mode": "clinician_entered",
-        "review_status": "REVIEWED",
+        # api/fhir.py and utils/patient_summary.py include a consultation in the
+        # longitudinal summary only when review_status is CONFIRMED or
+        # REQUIRES_REVIEW. An approved, signed-off record is CONFIRMED; anything
+        # else silently omits it from the FHIR export.
+        "review_status": "CONFIRMED",
         "safety_eval_required": has_meds,
         "safety_eval_completed": has_meds,
         "status": "approved",

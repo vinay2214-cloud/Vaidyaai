@@ -1,10 +1,12 @@
-<![CDATA[<div align="center">
+<div align="center">
 
 # VaidyaAI
 
 ### Seven Autonomous AI Agents That Run a Solo Doctor's Entire Clinic
 
 *Built for the [Build with Gemini — XPRIZE 2026](https://xprize.org) · Category: Professional Services Access*
+
+<br/>
 
 [![CI](https://github.com/vinay2214-cloud/Vaidyaai/actions/workflows/ci.yml/badge.svg)](https://github.com/vinay2214-cloud/Vaidyaai/actions)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
@@ -19,13 +21,13 @@
 
 ## Live Demo
 
-| | |
+| Component | URL / Details |
 |---|---|
 | **Frontend** | https://vaidyaai-frontend-353775352272.asia-south1.run.app |
 | **Backend API** | https://vaidyaai-backend-353775352272.asia-south1.run.app/docs |
-| **Service health** | https://vaidyaai-backend-353775352272.asia-south1.run.app/health |
-| **AI telemetry** | https://vaidyaai-backend-353775352272.asia-south1.run.app/api/v1/ai/live-status |
-| **Demo video** | https://youtu.be/q6UvraiMXeM |
+| **Service Health** | https://vaidyaai-backend-353775352272.asia-south1.run.app/health |
+| **AI Telemetry** | https://vaidyaai-backend-353775352272.asia-south1.run.app/api/v1/ai/live-status |
+| **Demo Video** | https://youtu.be/q6UvraiMXeM |
 
 Both services run on **Google Cloud Run** in `asia-south1`. Sign-in uses Firebase phone auth.
 
@@ -673,30 +675,6 @@ Frontend: `npm run lint` (ESLint) + `npm run build` (TypeScript strict mode) + P
 
 ---
 
-## Screenshots
-
-<p align="center">
-<img src="artifacts/e2e_evidence/01_dashboard.png" width="800" alt="Clinical Dashboard — Today's patient queue, agent activity, and clinic KPIs" />
-<br/><em>Clinical Dashboard — Today's patient queue, agent activity feed, and operational KPIs</em>
-</p>
-
-<p align="center">
-<img src="artifacts/e2e_evidence/05_consultation_soap_rendered.png" width="800" alt="Consultation Workspace — AI-generated SOAP note with provenance telemetry banner" />
-<br/><em>Consultation Workspace — SOAP note with ClinicalScribe telemetry: model, region, latency, STT confidence</em>
-</p>
-
-<p align="center">
-<img src="artifacts/e2e_evidence/07_billing_page.png" width="800" alt="Billing Dashboard — Invoices, payment status, and financial KPIs" />
-<br/><em>Billing Dashboard — Invoice management, payment tracking, and daily financial summary</em>
-</p>
-
-<p align="center">
-<img src="artifacts/e2e_evidence/08_compliance_audit_logs.png" width="800" alt="Operations Timeline — Agent decision audit logs" />
-<br/><em>Operations Timeline — Every agent decision logged with model, latency, and correlation ID</em>
-</p>
-
----
-
 ## Judge Demo Flow (5 minutes)
 
 | Step | What to Show | What It Demonstrates |
@@ -987,4 +965,3 @@ Submitted to **Build with Gemini — XPRIZE 2026**, category **Professional Serv
 <sub>Deployment state described here was verified against the live Cloud Run services on 22 August 2026.</sub>
 
 </div>
-]]>

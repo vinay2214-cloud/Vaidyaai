@@ -225,7 +225,20 @@ export default function LongitudinalPatientRecordPage() {
     created_at: r.created_at ? new Date(r.created_at).toLocaleDateString() : "Recent"
   }));
 
-  const retentionHistory: RetentionOutreachItem[] = [];
+  // Previously hardcoded to []: the panel could never show anything, however
+  // much outreach RetentionRadar had actually performed. Now fed from the
+  // timeline endpoint's retention_outreach records.
+  const rawOutreach = (timelineData as any)?.retention_outreach || [];
+  const retentionHistory: RetentionOutreachItem[] = rawOutreach.map((o: any, idx: number) => ({
+    id: o.outreach_id || `out_${idx}`,
+    campaign_name: o.campaign_name || o.outreach_type || "Follow-up outreach",
+    sent_date: o.sent_at ? new Date(o.sent_at).toLocaleDateString() : "—",
+    channel: (o.channel || "whatsapp").toUpperCase(),
+    response_status: o.response_status || o.status || "sent",
+    next_scheduled_outreach: o.next_scheduled_outreach
+      ? new Date(o.next_scheduled_outreach).toLocaleDateString()
+      : "Not scheduled",
+  }));
 
   const documents: ClinicalDocument[] = latestCons?.consultation_id ? [
     {
@@ -242,7 +255,21 @@ export default function LongitudinalPatientRecordPage() {
   // Each item carries a canonical ISO `timestamp` used for chronological sorting
   // and a localized `date` used only for display (locale strings are not
   // lexicographically sortable, so sorting must never rely on `date`).
-  const appointmentItems: LongitudinalTimelineItem[] = rawAppts.map((a: any, idx: number) => {
+  // A visit and its clinical note are the same event. Both were rendered as
+  // separate rows, so a patient with three visits showed six timeline entries
+  // and contradicted the "Total Visits: 3" figure elsewhere on the page. The
+  // consultation is the richer record, so an appointment only earns its own row
+  // when no consultation was ever written against it (booked-but-not-seen,
+  // cancelled, or a no-show) — cases where the appointment IS the whole story.
+  const appointmentIdsWithConsultation = new Set(
+    rawConsultations
+      .map((c: any) => c.appointment_id)
+      .filter(Boolean)
+  );
+
+  const appointmentItems: LongitudinalTimelineItem[] = rawAppts
+    .filter((a: any) => !appointmentIdsWithConsultation.has(a.appointment_id || a.id))
+    .map((a: any, idx: number) => {
     const ts = a.slot_date ? new Date(a.slot_date).toISOString() : undefined;
     return {
       id: a.appointment_id || a.id || `tl_appt_${idx}`,

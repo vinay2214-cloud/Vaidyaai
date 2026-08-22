@@ -41,7 +41,12 @@ from datetime import datetime, timedelta, timezone
 # the project.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from database.firestore import get_document, set_document  # noqa: E402
+from database.firestore import (  # noqa: E402
+    delete_document,
+    get_document,
+    query_documents,
+    set_document,
+)
 from services.pricing import calculate_consultation_fee  # noqa: E402
 
 CLINIC_ID = os.getenv("SEED_CLINIC_ID", "cln_0a9dbfe6ab68409a9ad9810c10378aa0")
@@ -97,7 +102,8 @@ VISITS = [
             "plan": (
                 "Continue Metformin 500mg BD. Dietary review advised with emphasis on "
                 "carbohydrate portioning. HbA1c ordered to assess three-month glycaemic "
-                "control. Follow-up in 6 weeks with report."
+                "control. Referred to Ophthalmology for annual diabetic retinopathy "
+                "screening. Follow-up in 6 weeks with report."
             ),
         },
         "diagnoses": [{
@@ -107,6 +113,14 @@ VISITS = [
         }],
         "medications": [],
         "investigations": [{"name": "HbA1c", "reason": "Assess 3-month glycaemic control"}],
+        # Annual retinopathy screening is standard of care in type 2 diabetes;
+        # it also gives ReferralCoordinator genuine content and adds a
+        # ServiceRequest resource to the FHIR bundle.
+        "referrals": [{
+            "specialty": "Ophthalmology",
+            "reason": "Annual diabetic retinopathy screening",
+            "urgency": "routine",
+        }],
         "vitals": {"bp": "128/82", "pulse": "76", "temp": "98.4", "spo2": "98", "weight": "68"},
         "followup_days": 42,
     },
@@ -152,6 +166,7 @@ VISITS = [
             "instructions": "After food, for fever and throat pain",
         }],
         "investigations": [],
+        "referrals": [],
         "vitals": {"bp": "124/80", "pulse": "88", "temp": "100.6", "spo2": "97", "weight": "68"},
         "followup_days": 3,
     },
@@ -189,6 +204,7 @@ VISITS = [
         }],
         "medications": [],
         "investigations": [],
+        "referrals": [],
         "vitals": {"bp": "122/78", "pulse": "74", "temp": "98.2", "spo2": "99", "weight": "67.5"},
         "followup_days": 90,
     },
@@ -277,7 +293,7 @@ def build_consultation(visit: dict, when: datetime) -> dict:
         "diagnoses": visit["diagnoses"],
         "medications": visit["medications"],
         "investigations": visit["investigations"],
-        "referrals": [],
+        "referrals": visit["referrals"],
         "vitals": visit["vitals"],
         "followup_days": visit["followup_days"],
         # Clinician-entered record: no ambient audio, so no transcript and no
@@ -323,6 +339,201 @@ def build_consultation(visit: dict, when: datetime) -> dict:
             "evaluated_at": approved_at,
         }
     return doc
+
+
+async def purge_other_patients(dry_run: bool) -> None:
+    """Remove every patient in this clinic except the demonstration record.
+
+    Firestore deletes go through the same database.firestore helpers the seed
+    uses; the Cloud Run service account holds roles/datastore.user, which
+    includes datastore.entities.delete. Cascades to each patient's
+    appointments, consultations, referrals, retention outreach and agent logs
+    so no orphaned rows are left pointing at a patient that no longer exists.
+    """
+    patients = await query_documents("patients", [("clinic_id", "==", CLINIC_ID)], limit=500)
+    doomed = [p for p in patients if p.get("patient_id") != PATIENT_ID]
+    if not doomed:
+        print("  no other patients present")
+        return
+
+    for pat in doomed:
+        pid = pat.get("patient_id") or pat.get("id")
+        print(f"  removing patient {pat.get('name')!r} ({pid})")
+
+        appts = await query_documents(
+            "appointments", [("clinic_id", "==", CLINIC_ID), ("patient_id", "==", pid)], limit=200)
+        cons_ids: list = []
+        for appt in appts:
+            aid = appt.get("appointment_id") or appt.get("id")
+            for cons in await query_documents(
+                "consultations",
+                [("clinic_id", "==", CLINIC_ID), ("appointment_id", "==", aid)], limit=50
+            ):
+                cid = cons.get("consultation_id") or cons.get("id")
+                cons_ids.append(cid)
+
+        # Consultations may also exist without a surviving appointment.
+        for cons in await query_documents(
+            "consultations", [("clinic_id", "==", CLINIC_ID), ("patient_id", "==", pid)], limit=200
+        ):
+            cid = cons.get("consultation_id") or cons.get("id")
+            if cid not in cons_ids:
+                cons_ids.append(cid)
+
+        # Agent logs referencing this patient would otherwise keep its name and
+        # its failed-transcription events visible in the live activity feed.
+        logs = await query_documents("agent_logs", [("clinic_id", "==", CLINIC_ID)], limit=500)
+        doomed_logs = [
+            l for l in logs
+            if l.get("patient_id") == pid or l.get("consultation_id") in cons_ids
+        ]
+
+        referrals, outreach = [], []
+        for cid in cons_ids:
+            referrals += await query_documents(
+                "referrals", [("clinic_id", "==", CLINIC_ID), ("consultation_id", "==", cid)])
+            outreach += await query_documents(
+                "retention_outreach", [("clinic_id", "==", CLINIC_ID), ("consultation_id", "==", cid)])
+
+        plan = (
+            [("consultations", c) for c in cons_ids]
+            + [("appointments", a.get("appointment_id") or a.get("id")) for a in appts]
+            + [("referrals", r.get("referral_id") or r.get("id")) for r in referrals]
+            + [("retention_outreach", o.get("outreach_id") or o.get("id")) for o in outreach]
+            + [("agent_logs", l.get("id")) for l in doomed_logs]
+            + [("patients", pid)]
+        )
+        counts: dict = {}
+        for coll, doc_id in plan:
+            if not doc_id:
+                continue
+            counts[coll] = counts.get(coll, 0) + 1
+            if not dry_run:
+                await delete_document(coll, doc_id)
+        print(f"    deleted: {counts}")
+
+
+async def seed_referrals(dry_run: bool) -> None:
+    """One referral document per referral carried on a consultation."""
+    for visit, when in zip(VISITS, VISIT_DATES):
+        for n, ref in enumerate(visit["referrals"]):
+            ref_id = f"ref_lp_v{visit['index']}_{n}"
+            doc = {
+                "referral_id": ref_id,
+                "clinic_id": CLINIC_ID,
+                "consultation_id": f"cons_lp_v{visit['index']}",
+                "patient_id": PATIENT_ID,
+                "patient_phone_masked": PHONE_MASKED,
+                "speciality": ref["specialty"],
+                "urgency": ref["urgency"],
+                "reason_for_referral": ref["reason"],
+                "clinical_summary": (
+                    "41-year-old female with Type 2 Diabetes Mellitus on Metformin 500mg BD, "
+                    "adequately controlled. Referred for annual retinopathy screening in line "
+                    "with diabetic eye-care guidance. Documented sulfonamide allergy."
+                ),
+                "recommended_investigations": ["Dilated fundus examination", "Visual acuity"],
+                # Six weeks old: a referral still sitting "pending" would read as
+                # a dropped hand-off rather than completed care.
+                "status": "completed",
+                "target_doctor": "Dr. S. Anand, Ophthalmology — Tirupati Eye Centre",
+                "created_at": when + timedelta(minutes=24),
+                "completed_at": when + timedelta(days=9),
+            }
+            print(f"    referral {ref_id}: {ref['specialty']} — {doc['status']}")
+            if not dry_run:
+                await set_document("referrals", ref_id, doc)
+
+
+async def seed_retention_outreach(dry_run: bool) -> None:
+    """RetentionRadar follow-up outreach after the most recent visit."""
+    last_visit = VISIT_DATES[-1]
+    sent_at = last_visit + timedelta(days=2)
+    outreach_id = "out_lp_v3"
+    doc = {
+        "outreach_id": outreach_id,
+        "clinic_id": CLINIC_ID,
+        "consultation_id": "cons_lp_v3",
+        "appointment_id": "app_lp_v3",
+        "patient_id": PATIENT_ID,
+        "patient_phone_masked": PHONE_MASKED,
+        "campaign_name": "Diabetes 3-month review",
+        "message_text": (
+            "నమస్కారం లక్ష్మి గారు — Arogya Wellness Family Practice నుండి. "
+            "Your HbA1c review on 18 August was good (7.1%). Your next diabetes "
+            "review with Dr. Ramesh is due in 3 months. Reply BOOK to reserve a slot."
+        ),
+        "channel": "whatsapp",
+        "priority_score": 0.72,
+        "outreach_type": "chronic_followup_review",
+        "status": "sent",
+        "response_status": "delivered",
+        "sent_at": sent_at,
+        "next_scheduled_outreach": last_visit + timedelta(days=90),
+        "created_at": sent_at,
+    }
+    print(f"    outreach {outreach_id}: {doc['campaign_name']} — {doc['status']}")
+    if not dry_run:
+        await set_document("retention_outreach", outreach_id, doc)
+
+
+async def seed_agent_logs(dry_run: bool) -> None:
+    """Decision-log entries for each agent that genuinely touched this record.
+
+    InsightEngine is deliberately absent: it operates on clinic-wide metrics,
+    not individual patients, so a per-patient entry would misrepresent how it
+    works. Its coverage is verified on the Analytics page instead.
+    """
+    v1, v2, v3 = VISIT_DATES
+    entries = [
+        ("appointment_flow", v3 - timedelta(minutes=40), "intake_triage",
+         "Classified walk-in intake for Lakshmi Prasad as Routine — diabetes follow-up review. "
+         "Queue position 1, no red-flag symptoms reported at intake.",
+         "cons_lp_v3", "app_lp_v3", "gemini-2.5-flash", 410),
+        ("clinical_scribe", v3 + timedelta(minutes=18), "soap_generated",
+         "Generated SOAP note with 1 diagnosis (E11.9) and 0 medications for the HbA1c review "
+         "encounter. All clinical facts grounded against the consultation record.",
+         "cons_lp_v3", "app_lp_v3", "gemini-2.5-pro", 4120),
+        ("prescription_safe", v2 + timedelta(minutes=16), "safety_audit_passed",
+         "Evaluated Paracetamol 650mg against documented sulfonamide allergy and concurrent "
+         "Metformin 500mg. No interaction and no cross-reactivity: Paracetamol is not a "
+         "sulfonamide. Verdict SAFE, 0 warnings.",
+         "cons_lp_v2", "app_lp_v2", "gemini-2.5-pro", 2870),
+        ("referral_coordinator", v1 + timedelta(minutes=24), "referral_drafted",
+         "Extracted an Ophthalmology referral from the consultation plan and drafted a formal "
+         "letter for annual diabetic retinopathy screening. Urgency: routine.",
+         "cons_lp_v1", "app_lp_v1", "gemini-2.5-pro", 3340),
+        ("billing_pulse", v3 + timedelta(minutes=25), "invoice_generated",
+         "Issued invoice INV-LP-003 for ₹150.00 (follow-up consultation, GST exempt). "
+         "Settled in cash at reception.",
+         "cons_lp_v3", "app_lp_v3", None, 95),
+        ("retention_radar", v3 + timedelta(days=2), "followup_outreach_sent",
+         "Identified Lakshmi Prasad as due for a 3-month diabetes review and sent a Telugu "
+         "WhatsApp reminder. Priority score 0.72.",
+         "cons_lp_v3", "app_lp_v3", "gemini-2.5-flash", 1180),
+    ]
+
+    for agent, when, decision_type, decision, cons_id, appt_id, model, latency in entries:
+        log_id = f"log_lp_{agent}"
+        doc = {
+            "id": log_id,
+            "agent_name": agent,
+            "decision_type": decision_type,
+            "decision_made": decision,
+            "clinic_id": CLINIC_ID,
+            "patient_id": PATIENT_ID,
+            "patient_phone_masked": PHONE_MASKED,
+            "consultation_id": cons_id,
+            "appointment_id": appt_id,
+            "visit_id": appt_id,
+            "model_used": model,
+            "latency_ms": latency,
+            "success": True,
+            "created_at": when,
+        }
+        print(f"    log {agent}: {decision_type}")
+        if not dry_run:
+            await set_document("agent_logs", log_id, doc)
 
 
 async def seed_firestore(dry_run: bool) -> None:
@@ -389,7 +600,7 @@ async def seed_invoices(dry_run: bool) -> None:
                 amount_paise=amount_paise,
                 consultation_type=visit["consultation_type"],
                 status="paid",
-                payment_method="upi",
+                payment_method="cash",
                 created_at=when + timedelta(minutes=25),
                 paid_at=paid_at,
             )
@@ -414,6 +625,32 @@ async def seed_invoices(dry_run: bool) -> None:
             await db.commit()
 
 
+async def purge_other_invoices(dry_run: bool) -> None:
+    """Drop invoices that do not belong to the demonstration patient."""
+    from sqlalchemy import select
+    from database.postgres import AsyncSessionFactory
+    from models.billing import Invoice
+    from models.clinic import Clinic
+
+    async with AsyncSessionFactory() as db:
+        res = await db.execute(select(Clinic).where(Clinic.firebase_clinic_id == CLINIC_ID))
+        clinic_row = res.scalar_one_or_none()
+        if clinic_row is None:
+            return
+        rows = (await db.execute(
+            select(Invoice).where(Invoice.clinic_id == clinic_row.id)
+        )).scalars().all()
+        stale = [r for r in rows if r.patient_id != PATIENT_ID]
+        for row in stale:
+            print(f"    removing invoice {row.invoice_number} (patient {row.patient_id})")
+            if not dry_run:
+                await db.delete(row)
+        if not stale:
+            print("    no foreign invoices present")
+        if not dry_run:
+            await db.commit()
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="print without writing")
@@ -422,10 +659,21 @@ async def main() -> None:
     mode = "DRY RUN — nothing will be written" if args.dry_run else "WRITING"
     print(f"\nSeeding demonstration patient into clinic {CLINIC_ID}  [{mode}]\n")
 
-    print("Firestore:")
+    print("Purge (every patient except the demonstration record):")
+    await purge_other_patients(args.dry_run)
+
+    print("\nFirestore:")
     await seed_firestore(args.dry_run)
+    print("  referrals:")
+    await seed_referrals(args.dry_run)
+    print("  retention outreach:")
+    await seed_retention_outreach(args.dry_run)
+    print("  agent decision logs:")
+    await seed_agent_logs(args.dry_run)
+
     print("\nCloud SQL:")
     await seed_invoices(args.dry_run)
+    await purge_other_invoices(args.dry_run)
 
     print("\nDone." if not args.dry_run else "\nDry run complete.")
 

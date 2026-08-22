@@ -196,6 +196,21 @@ async def get_patient_clinical_timeline(
         for group in ref_groups:
             referrals.extend(group)
 
+    # RetentionRadar outreach is linked the same way referrals are. Without this
+    # the patient profile's outreach panel had no data source at all and always
+    # rendered empty, regardless of how much follow-up the agent had actually done.
+    outreach: List[Dict[str, Any]] = []
+    if cons_ids:
+        out_groups = await asyncio.gather(*[
+            query_documents(
+                "retention_outreach",
+                [("clinic_id", "==", clinic_id), ("consultation_id", "==", cons_id)],
+            )
+            for cons_id in cons_ids
+        ])
+        for group in out_groups:
+            outreach.extend(group)
+
     return {
         "patient_id": id,
         "name": patient.get("name"),
@@ -205,7 +220,8 @@ async def get_patient_clinical_timeline(
         "total_visits": len(appointments),
         "appointments": appointments,
         "consultations": consultations,
-        "referrals": referrals
+        "referrals": referrals,
+        "retention_outreach": outreach
     }
 
 

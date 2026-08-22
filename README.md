@@ -28,6 +28,17 @@ production, so clinical output cannot quietly degrade to synthetic text.
 
 Both services are deployed on Google Cloud Run in `asia-south1`. Sign-in is Firebase phone auth.
 
+### Judge Testing Access
+
+| | |
+|---|---|
+| **Phone** | `+91 98497 45859` |
+| **OTP** | `123456` |
+
+This is a Firebase test phone number: it accepts this code **only for this specific number** and
+does not bypass authentication for any other account. It signs in to a demo clinic
+(*Arogya Wellness Family Practice*) containing test data only.
+
 ---
 
 ## Clinical Pipeline
@@ -57,9 +68,9 @@ clinician-readable error rather than a note synthesised from nothing.
 | 2 | **ClinicalScribe** | Gemini 2.5 Pro | Transcribes ambient consultation audio and drafts a structured SOAP note with ICD-10 codes. |
 | 3 | **PrescriptionSafe** | Gemini 2.5 Pro | Checks drug–drug interactions and allergy conflicts; blocks approval fail-closed on critical findings. |
 | 4 | **BillingPulse** | deterministic | Generates invoices and UPI payment links on approval, and daily P&L summaries. |
-| 5 | **ReferralCoordinator** | Gemini 2.5 Flash | Extracts specialist referrals from SOAP notes and drafts formal referral letters. |
+| 5 | **ReferralCoordinator** | Gemini 2.5 Pro | Extracts specialist referrals from SOAP notes and drafts formal referral letters. |
 | 6 | **RetentionRadar** | Gemini 2.5 Flash | Tracks chronic follow-ups and missed appointments, with outreach in Telugu, Hindi, Tamil and English. |
-| 7 | **InsightEngine** | Gemini 2.5 Flash | Computes a Practice Health Score and weekly growth recommendations from clinic and billing data. |
+| 7 | **InsightEngine** | Gemini 2.5 Pro | Computes a Practice Health Score and weekly growth recommendations from clinic and billing data. |
 
 Every agent decision is written to an append-only audit log with model, region, latency and outcome,
 exportable as CSV or JSON from the Operations Timeline.
@@ -106,7 +117,7 @@ but never **released to the project**. Definition and deployment are different t
 
 ## Tests
 
-**209 backend tests passing.**
+**213 backend tests passing.**
 
 ```bash
 cd backend && python3 -m pytest tests/ -q
@@ -114,7 +125,7 @@ cd backend && python3 -m pytest tests/ -q
 
 | Area | What is covered |
 |---|---|
-| Grounding validation | Evidence-span enforcement, provenance rules, vitals preservation, zero-fabrication |
+| Grounding validation | Unsupported descriptors and fabricated durations are rejected; provenance rules; vitals preservation |
 | Fail-closed safety | LLM failure behaviour, prescription safety gates, billing safety gates, override paths |
 | Transcription integrity | An empty or unusable transcript is refused and never reaches the LLM |
 | CORS boundary | Unhandled 500s carry CORS headers so clients receive a real status |

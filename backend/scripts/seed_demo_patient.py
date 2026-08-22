@@ -214,6 +214,12 @@ def build_patient() -> dict:
             {"drug_name": "Metformin", "dosage": "500mg", "frequency": "BD", "route": "oral"}
         ],
         "visit_count": len(VISITS),
+        # The patients list reads last_visit_str / visit_type directly; nothing
+        # computes them server-side, so a patient without them renders as
+        # "Last Visit: Not recorded" regardless of how many visits they have.
+        "last_visit_str": _date_str(VISIT_DATES[-1]),
+        "visit_type": "Diabetes Follow-up",
+        "status_badge": "FOLLOW-UP",
         "consent_given": True,
         "consent_at": first_visit,
         "opted_out": False,

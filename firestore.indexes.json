@@ -4,74 +4,170 @@
       "collectionGroup": "appointments",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "clinic_id", "order": "ASCENDING"},
-        {"fieldPath": "slot_date", "order": "ASCENDING"},
-        {"fieldPath": "status", "order": "ASCENDING"}
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "slot_date",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "appointments",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "clinic_id", "order": "ASCENDING"},
-        {"fieldPath": "slot_date", "order": "ASCENDING"},
-        {"fieldPath": "slot_time", "order": "ASCENDING"}
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "slot_date",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "slot_time",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "appointments",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "clinic_id", "order": "ASCENDING"},
-        {"fieldPath": "slot_time", "order": "ASCENDING"}
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "slot_time",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "patients",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "clinic_id", "order": "ASCENDING"},
-        {"fieldPath": "last_visit", "order": "ASCENDING"}
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "last_visit",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "patients",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "clinic_id", "order": "ASCENDING"},
-        {"fieldPath": "phone", "order": "ASCENDING"}
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "phone",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "agent_logs",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "clinic_id", "order": "ASCENDING"},
-        {"fieldPath": "created_at", "order": "DESCENDING"}
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "agent_logs",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "clinic_id", "order": "ASCENDING"},
-        {"fieldPath": "agent_name", "order": "ASCENDING"},
-        {"fieldPath": "created_at", "order": "DESCENDING"}
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "agent_name",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "consultations",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "clinic_id", "order": "ASCENDING"},
-        {"fieldPath": "created_at", "order": "DESCENDING"}
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "consultations",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "appointment_id", "order": "ASCENDING"}
+        {
+          "fieldPath": "appointment_id",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "appointments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "patient_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "consultations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "patient_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "clinic_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],

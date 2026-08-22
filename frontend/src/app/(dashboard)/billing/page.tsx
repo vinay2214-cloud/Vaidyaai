@@ -371,12 +371,7 @@ export default function BillingWorkflowPage() {
   const [filter, setFilter] = useState<"all" | "pending" | "paid">("all");
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refreshBilling();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [refreshBilling]);
+  // Polling lives in useBilling, which backs off when the endpoint is failing.
 
   const rawInvoices = useMemo(() => summary?.invoices || [], [summary?.invoices]);
 

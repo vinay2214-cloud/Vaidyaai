@@ -41,7 +41,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <LeftSidebar />
           </div>
 
-          <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-5">
+          {/* pb-24 reserves the height of MobileNav, which is `fixed bottom-0
+              z-50` below the md breakpoint and therefore floats OVER page
+              content. Only the dashboard used to allow for it, so on a phone
+              the nav bar covered the bottom of every other page — including
+              the consultation workspace, where it sat directly on top of
+              "Stop & Generate SOAP Note". Tapping Stop hit the Billing link
+              underneath it instead, which is why the QA pass saw the recorder
+              navigate to /billing. Reserved here so no page can forget. */}
+          <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-5 pb-24 md:pb-5">
             {children}
           </main>
 

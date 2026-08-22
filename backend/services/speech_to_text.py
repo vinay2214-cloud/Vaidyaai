@@ -101,15 +101,38 @@ class SpeechToTextService:
         current_pid = os.getpid()
         if self._speech_client is None or self._client_pid != current_pid:
             if speech is not None and hasattr(speech, "SpeechClient"):
+                # Do NOT pin quota_project_id here.
+                #
+                # Setting an explicit quota project makes every Speech call
+                # require `serviceusage.services.use` on that project. On Cloud
+                # Run the service account has no such permission, so every
+                # transcription died with:
+                #   "Caller does not have required permission to use project
+                #    vaidyaai-xprize ... roles/serviceusage.serviceUsageConsumer"
+                # which surfaced to the clinician as a blank SOAP note.
+                #
+                # Attached service-account credentials already bill and quota
+                # against their own project, so the override buys nothing in
+                # production and only adds a permission requirement. It exists
+                # for local user ADC, where the supported remedy is
+                # `gcloud auth application-default set-quota-project`, not a
+                # client-side override — so fall back to it only if the default
+                # construction fails.
                 try:
-                    from google.api_core.client_options import ClientOptions
-                    options = ClientOptions(quota_project_id=settings.GOOGLE_CLOUD_PROJECT)
-                    self._speech_client = speech.SpeechClient(client_options=options)
+                    self._speech_client = speech.SpeechClient()
                     self._client_pid = current_pid
-                    logger.info(f"Initialized Google SpeechClient in process PID {current_pid} (quota_project={settings.GOOGLE_CLOUD_PROJECT})")
+                    logger.info(f"Initialized Google SpeechClient in process PID {current_pid} (ADC default quota project)")
                 except Exception as e:
-                    logger.warning(f"Could not initialize SpeechClient: {e}")
-                    self._speech_client = None
+                    logger.warning(f"Default SpeechClient init failed ({e}); retrying with explicit quota project")
+                    try:
+                        from google.api_core.client_options import ClientOptions
+                        options = ClientOptions(quota_project_id=settings.GOOGLE_CLOUD_PROJECT)
+                        self._speech_client = speech.SpeechClient(client_options=options)
+                        self._client_pid = current_pid
+                        logger.info(f"Initialized Google SpeechClient in process PID {current_pid} (quota_project={settings.GOOGLE_CLOUD_PROJECT})")
+                    except Exception as e2:
+                        logger.warning(f"Could not initialize SpeechClient: {e2}")
+                        self._speech_client = None
             else:
                 logger.warning("google-cloud-speech package not installed in environment")
                 self._speech_client = None

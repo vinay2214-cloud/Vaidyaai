@@ -450,7 +450,7 @@ export function SOAPNoteEditor({
               value={subjective}
               onChange={(e) => setSubjective(e.target.value)}
               className="input-field min-h-[85px] text-xs focus:ring-1 focus:ring-teal-500"
-              placeholder="Patient reports fever, chills, cough..."
+              placeholder="Empty — describe the reported symptoms, onset and duration"
             />
           </div>
 
@@ -463,7 +463,7 @@ export function SOAPNoteEditor({
               value={objective}
               onChange={(e) => setObjective(e.target.value)}
               className="input-field min-h-[85px] text-xs focus:ring-1 focus:ring-teal-500"
-              placeholder="Physical examination and vitals (e.g. general appearance, chest, CVS)..."
+              placeholder="Empty — record examination findings and vitals"
             />
           </div>
 
@@ -476,7 +476,7 @@ export function SOAPNoteEditor({
               value={assessment}
               onChange={(e) => setAssessment(e.target.value)}
               className="input-field min-h-[85px] text-xs focus:ring-1 focus:ring-teal-500"
-              placeholder="Acute Upper Respiratory Tract Infection..."
+              placeholder="Empty — enter the clinical impression and ICD-10 code"
             />
           </div>
 
@@ -489,7 +489,7 @@ export function SOAPNoteEditor({
               value={plan}
               onChange={(e) => setPlan(e.target.value)}
               className="input-field min-h-[85px] text-xs focus:ring-1 focus:ring-teal-500"
-              placeholder="Prescribed Paracetamol 650mg, hydration, 3-day follow-up..."
+              placeholder="Empty — enter treatment, prescription and follow-up interval"
             />
           </div>
         </div>
@@ -621,7 +621,7 @@ export function SOAPNoteEditor({
                   rows={2}
                   value={overrideText}
                   onChange={(e) => setOverrideText(e.target.value)}
-                  placeholder="e.g., Patient monitored on this combination previously without adverse reaction..."
+                  placeholder="Empty — state the clinical justification for overriding this warning"
                   className="input-field text-xs py-1.5 focus:ring-amber-500"
                 />
                 <button

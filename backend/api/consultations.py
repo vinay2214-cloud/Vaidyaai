@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_current_user, verify_clinic_access
 from database.firestore import get_document, query_documents, set_document, update_document
-from agents.clinical_scribe import ClinicalScribeAgent
+from agents.clinical_scribe import ClinicalScribeAgent, ScribeTranscriptionError
 from agents.prescription_safe import PrescriptionSafeAgent
 from agents.referral_coordinator import ReferralCoordinatorAgent
 from services.pdf_generator import generate_prescription_pdf
@@ -293,15 +293,35 @@ async def transcribe_consultation(
             logger.info(f"Discovered {len(disk_chunks)} audio chunks on disk for consultation {req.consultation_id}")
             chunk_paths = disk_chunks
 
-    result = await scribe_agent.process_consultation_audio(
-        consultation_id=req.consultation_id,
-        clinic_id=req.clinic_id,
-        appointment_id=req.appointment_id,
-        chunk_paths=chunk_paths,
-        patient_history=req.patient_history or "",
-        vitals=req.vitals or "",
-        language_code=req.language_code or "te-IN"
-    )
+    if not chunk_paths:
+        # Nothing was captured or the chunks never reached this instance. Say so
+        # plainly rather than running the pipeline on nothing and returning a
+        # note-shaped object with no content in it.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "No audio was received for this consultation. Please check the "
+                "microphone and record again."
+            )
+        )
+
+    try:
+        result = await scribe_agent.process_consultation_audio(
+            consultation_id=req.consultation_id,
+            clinic_id=req.clinic_id,
+            appointment_id=req.appointment_id,
+            chunk_paths=chunk_paths,
+            patient_history=req.patient_history or "",
+            vitals=req.vitals or "",
+            language_code=req.language_code or "te-IN"
+        )
+    except ScribeTranscriptionError as e:
+        # A known, explainable failure: report the reason verbatim so the
+        # clinician sees "Recording too short or unclear" rather than a 500.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        ) from e
 
     # Emit SOAP_GENERATED event AFTER database commit
     bus = get_event_bus()

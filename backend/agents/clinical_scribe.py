@@ -15,6 +15,20 @@ from utils.phone_utils import mask_phone
 
 logger = logging.getLogger("vaidyaai.agents.clinical_scribe")
 
+# Below this many usable characters a transcript cannot support a clinical note.
+# A 30-second consultation yields hundreds of characters; anything at this level
+# means silence, a muted microphone, or a failed decode.
+MIN_USABLE_TRANSCRIPT_CHARS = 25
+
+
+class ScribeTranscriptionError(RuntimeError):
+    """Raised when audio could not be turned into a usable transcript.
+
+    Distinct from a generic failure so the API layer can return a specific,
+    clinician-readable reason instead of an opaque 500. Carries a message that
+    is safe to show directly in the UI.
+    """
+
 
 class ClinicalScribeAgent(BaseAgent):
     """
@@ -46,11 +60,64 @@ class ClinicalScribeAgent(BaseAgent):
         start_total = time.monotonic()
 
         # 1. Speech-to-Text with Speaker Diarization
+        #
+        # This call used to be unguarded. When it raised — a Speech-to-Text
+        # permission error, for instance — the exception escaped all the way to
+        # FastAPI as a bare 500, and the clinician saw a SOAP panel that simply
+        # stayed on its placeholder text with nothing to explain why. Failing
+        # audibly here is a patient-safety property, not a nicety: a blank note
+        # must never be mistakable for a generated one.
         start_stt = time.monotonic()
-        stt_result = await self.stt_service.transcribe_audio_chunks(chunk_paths, language_code)
+        try:
+            stt_result = await self.stt_service.transcribe_audio_chunks(chunk_paths, language_code)
+        except Exception as e:
+            stt_latency_ms = int((time.monotonic() - start_stt) * 1000)
+            logger.error(f"ClinicalScribe speech-to-text failed: {e}", exc_info=True)
+            await self.logger.log_decision(
+                decision_type="transcription_failed",
+                decision_made=f"Speech-to-Text failed for consultation {consultation_id}: {str(e)[:120]}",
+                clinic_id=clinic_id,
+                consultation_id=consultation_id,
+                appointment_id=appointment_id,
+                latency_ms=stt_latency_ms,
+                success=False,
+                error_message=str(e)
+            )
+            raise ScribeTranscriptionError(
+                "Speech-to-Text could not process this recording. The audio was not "
+                "transcribed and no clinical note was generated."
+            ) from e
+
         stt_latency_ms = int((time.monotonic() - start_stt) * 1000)
         raw_transcript = stt_result.get("transcript", "")
         stt_confidence = stt_result.get("confidence", 0.95)
+
+        # Refuse to hand an empty or near-empty transcript to the LLM. Doing so
+        # yields a confident-looking note synthesised from nothing, which is the
+        # single most dangerous failure mode this pipeline has.
+        meaningful = " ".join((raw_transcript or "").split())
+        if len(meaningful) < MIN_USABLE_TRANSCRIPT_CHARS:
+            logger.warning(
+                f"Transcript for consultation {consultation_id} is too short to use "
+                f"({len(meaningful)} chars, status={stt_result.get('execution_status')})."
+            )
+            await self.logger.log_decision(
+                decision_type="transcription_empty",
+                decision_made=(
+                    f"Rejected SOAP generation for consultation {consultation_id}: "
+                    f"transcript held {len(meaningful)} usable characters."
+                ),
+                clinic_id=clinic_id,
+                consultation_id=consultation_id,
+                appointment_id=appointment_id,
+                latency_ms=stt_latency_ms,
+                success=False,
+                error_message="empty_transcript"
+            )
+            raise ScribeTranscriptionError(
+                "Recording too short or unclear — no speech could be transcribed. "
+                "Please check the microphone and record again."
+            )
         
         # 2. Anonymise transcript for LLM call
         anonymised_transcript = anonymise_for_llm(raw_transcript)

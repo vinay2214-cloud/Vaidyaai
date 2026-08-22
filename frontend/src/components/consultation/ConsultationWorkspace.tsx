@@ -130,6 +130,9 @@ export function ConsultationWorkspace({
   onApproved,
 }: ConsultationWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<TabId>("soap");
+  // Owned here so the scribe badge and the recorder can never disagree about
+  // whether the microphone is live.
+  const [isRecording, setIsRecording] = useState(false);
   const clinicId = useClinicStore((state) => state.clinicId);
 
   // Allergy & Chronic Disease & Medication Assessment Dialog States
@@ -490,9 +493,26 @@ export function ConsultationWorkspace({
             <FileCode className="w-3.5 h-3.5 text-teal-400" /> Export FHIR R4
           </button>
 
+          {/* Reflects the microphone, not the consultation record. This read
+              consultation.status before, so "AI Scribing Active" stayed lit
+              long after capture had stopped — a badge asserting that the
+              scribe was listening when it was not. */}
           <AIStatus
-            state={consultation.status === "approved" ? "completed" : "running"}
-            label={consultation.status === "approved" ? "Consultation Approved" : "AI Scribing Active"}
+            state={
+              consultation.status === "approved"
+                ? "completed"
+                : isRecording
+                ? "running"
+                : "pending"
+            }
+            label={
+              consultation.status === "approved"
+                ? "Consultation Approved"
+                : isRecording
+                ? "AI Scribing Active"
+                : "Scribe Idle"
+            }
+            pulse={isRecording}
           />
           <Badge variant={consultation.status === "approved" ? "green" : "blue"} dot>
             {consultation.status === "approved" ? "Approved" : "Draft"}
@@ -960,6 +980,7 @@ export function ConsultationWorkspace({
                 appointmentId={appointmentId}
                 onTranscribed={(data) => onDataChange(data as ConsultationData)}
                 onClear={onClear}
+                onRecordingStateChange={setIsRecording}
               />
             </div>
           </Panel>

@@ -76,13 +76,8 @@ export default function TodayQueuePage() {
     ? (platform.total_failures_today ?? 0) === 0 && (platform.total_agents ?? 0) > 0 ? "green" : "orange"
     : "orange";
 
-  React.useEffect(() => {
-    refreshBilling();
-    const interval = setInterval(() => {
-      refreshBilling();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [refreshBilling]);
+  // useBilling polls on its own schedule with backoff; a second interval here
+  // would re-fire on every tick and defeat it.
 
   const totalBooked = appointments.length;
   const arrived = appointments.filter((a) => a.status === "arrived").length;
@@ -163,7 +158,7 @@ export default function TodayQueuePage() {
   }, [activeEncounter, appointments.length]);
 
   return (
-    <div className="space-y-6 pb-20 md:pb-0">
+    <div className="space-y-6">
       <QueueHeader total={totalBooked} waiting={waiting} completed={completed} />
 
       {/* Status Pipeline */}

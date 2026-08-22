@@ -129,6 +129,48 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# ── Middleware order matters here, and it is load-bearing ──────────────────
+#
+# Starlette's add_middleware() INSERTS AT THE FRONT, so the middleware added
+# LAST ends up outermost. The final stack is:
+#
+#     security_and_tracing  (added last  -> outermost)
+#       CORSMiddleware
+#         unhandled_exception_guard  (added first -> innermost)
+#           routes
+#
+# WHY THE GUARD MUST BE INNERMOST:
+# FastAPI installs a handler registered for bare `Exception` on Starlette's
+# ServerErrorMiddleware, which wraps the *entire* user middleware stack — above
+# CORSMiddleware. A 500 produced there therefore never passes back through the
+# CORS layer and ships with no Access-Control-Allow-Origin header. The browser
+# then blocks the response outright and the frontend sees an opaque network
+# failure with no status code, instead of a 500 it could report.
+#
+# That is exactly how a Speech-to-Text permission error and a missing database
+# column both surfaced in the UI as "AxiosError: Network Error" with no
+# diagnosis: the real errors were invisible to the client.
+#
+# Catching below CORS means the error response travels back out through
+# CORSMiddleware like any normal response and arrives readable.
+
+
+@app.middleware("http")
+async def unhandled_exception_guard(request: Request, call_next):
+    """Convert an unhandled exception into a JSON 500 *inside* the CORS layer."""
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        logger.error(
+            f"Unhandled exception processing {request.method} {request.url.path}: {exc}",
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error occurred processing request."},
+        )
+
+
 # CORS Setup
 app.add_middleware(
     CORSMiddleware,
@@ -155,6 +197,13 @@ async def security_and_tracing_middleware(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    """Backstop only.
+
+    unhandled_exception_guard sits below CORS and handles anything raised by a
+    route, so this now catches only failures originating in the outer
+    middleware itself. Responses from here still lack CORS headers by
+    construction; that is acceptable for a case the browser cannot recover from.
+    """
     logger.error(f"Unhandled exception processing {request.method} {request.url.path}: {exc}", exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
